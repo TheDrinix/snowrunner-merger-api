@@ -1,6 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 
-namespace SnowrunnerMergerApi.Models;
+namespace SnowrunnerMergerApi.Models.Auth;
 
 public class User
 {
@@ -18,6 +18,6 @@ public class User
     [JsonIgnore]
     public bool EmailConfirmed { get; set; }
     public DateTime CreatedAt { get; set; }
-    
+    [JsonIgnore]
     public List<UserSession> UserSessions { get; set; }
 }

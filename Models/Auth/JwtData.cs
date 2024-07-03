@@ -1,4 +1,4 @@
-﻿namespace SnowrunnerMergerApi.Models;
+﻿namespace SnowrunnerMergerApi.Models.Auth;
 
 public record JwtData
 {

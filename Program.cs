@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
+using SnowrunnerMergerApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,6 +53,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 var app = builder.Build();
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);

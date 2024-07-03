@@ -1,6 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ValueGeneration;
-using SnowrunnerMergerApi.Models;
+using SnowrunnerMergerApi.Models.Auth;
 
 namespace SnowrunnerMergerApi.Data;
 
@@ -22,5 +22,12 @@ public class AppDbContext : DbContext
             .Entity<User>()
             .Property(u => u.Id)
             .HasValueGenerator<GuidValueGenerator>();
+
+        modelBuilder
+            .Entity<UserSession>()
+            .HasOne(s => s.User)
+            .WithMany(u => u.UserSessions)
+            .HasForeignKey(s => s.UserId)
+            .HasPrincipalKey(u => u.Id);
     }
 }

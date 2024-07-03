@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace SnowrunnerMergerApi.Models.Dtos;
+namespace SnowrunnerMergerApi.Models.Auth.Dtos;
 
 public record RegisterDto
 {

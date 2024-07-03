@@ -1,4 +1,5 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+﻿using System.Buffers.Text;
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -6,10 +7,13 @@ using System.Text;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Newtonsoft.Json;
+using NuGet.Protocol;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
-using SnowrunnerMergerApi.Models;
-using SnowrunnerMergerApi.Models.Dtos;
+using SnowrunnerMergerApi.Models.Auth;
+using SnowrunnerMergerApi.Models.Auth.Dtos;
+using SnowrunnerMergerApi.Models.Auth.Google;
 
 namespace SnowrunnerMergerApi.Services;
 
@@ -18,7 +22,11 @@ public interface IAuthService
     Task<User> Register(RegisterDto data);
     Task<LoginResponseDto> Login(LoginDto data);
     Task<LoginResponseDto> RefreshToken(string token);
-    public JwtData GetUserSessionData();
+    JwtData GetUserSessionData();
+    GoogleCredentials GetGoogleCredentials();
+    string GenerateOauthStateToken();
+    bool ValidateOauthStateToken(string state);
+    Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
 }
 
 public class AuthService : IAuthService
@@ -27,6 +35,7 @@ public class AuthService : IAuthService
     private readonly AppDbContext _dbContext;
     private readonly IConfiguration _config;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly HttpClient _httpClient;
 
     public AuthService(
         ILogger<AuthService> logger,
@@ -39,6 +48,10 @@ public class AuthService : IAuthService
         _dbContext = dbContext;
         _config = config;
         _httpContextAccessor = httpContextAccessor;
+        _httpClient = new HttpClient
+        {
+            BaseAddress = new Uri("https://www.googleapis.com")
+        };
     }
 
     public async Task<User> Register(RegisterDto data)
@@ -46,7 +59,7 @@ public class AuthService : IAuthService
         var passwordErrors = ValidatePassword(data.Password);
         if (passwordErrors.Count > 0)
         {
-            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", errors: passwordErrors);
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", passwordErrors);
         }
         
         var normalizedEmail = data.Email.ToUpper();
@@ -162,6 +175,123 @@ public class AuthService : IAuthService
             Username = username,
             Email = email
         };
+    }
+    
+    public GoogleCredentials GetGoogleCredentials()
+    {
+        var googleCredentials = _config.GetSection("Authentication:Google").Get<GoogleCredentials>();
+        
+        if (googleCredentials is null)
+        {
+            _logger.LogError("Google credentials not found");
+            throw new ArgumentNullException(nameof(googleCredentials));
+        }
+        
+        return googleCredentials;
+    }
+
+    public async Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri)
+    {
+        var credentials = GetGoogleCredentials();
+        
+        // Send http request to exchange code for token
+        
+        var url = new UriBuilder("https://oauth2.googleapis.com/token")
+        .ToString();
+        
+        var body = new
+        {
+            client_id = credentials.ClientId,
+            client_secret = credentials.ClientSecret,
+            code = code,
+            grant_type = "authorization_code",
+            redirect_uri = redirectUri
+        }.ToJson();
+        
+        var response = await _httpClient.PostAsync(url, new StringContent(body, Encoding.UTF8, "application/json"));
+        var data = await response.Content.ReadFromJsonAsync<GoogleTokenData>();
+        
+        if (data is null || string.IsNullOrEmpty(data.AccessToken))
+        {
+            throw new HttpResponseException(HttpStatusCode.BadRequest);
+        }
+        
+        var userData = await _httpClient.GetFromJsonAsync<GoogleUserData>($"https://www.googleapis.com/oauth2/v2/userinfo?access_token={data.AccessToken}");
+        
+        if (userData is null)
+        {
+            throw new HttpResponseException(HttpStatusCode.BadRequest);
+        }
+        
+        
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == userData.Email.ToUpper());
+        
+        if (user is null)
+        {
+            user = new User()
+            {
+                Username = userData.Name,
+                Email = userData.Email,
+                EmailConfirmed = true,
+                NormalizedEmail = userData.Email.ToUpper(),
+                NormalizedUsername = userData.Name.ToUpper(),
+                CreatedAt = DateTime.UtcNow,
+                PasswordHash = Array.Empty<byte>(),
+                PasswordSalt = Array.Empty<byte>(),
+            };
+            
+            _dbContext.Users.Add(user);
+            await _dbContext.SaveChangesAsync();
+        }
+        
+        var token = GenerateJwt(new JwtData() { Id = user.Id, Username = user.Username, Email = user.Email });
+
+        var sessionData = await GenerateRefreshToken(user);
+        
+        return new LoginResponseDto
+        {
+            AccessToken = token,
+            ExpiresIn = 60 * 60 * 24,
+            RefreshToken = sessionData.RefreshToken,
+            RefreshTokenExpiresAt = sessionData.ExpiresAt,
+            User = user
+        };
+    }
+
+    public string GenerateOauthStateToken()
+    {
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Lax
+        };
+
+        _httpContextAccessor.HttpContext?.Response.Cookies.Append("oauth_state", token, cookieOptions);
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        token = Convert.ToBase64String(hash);
+
+        return token;
+    }
+    
+    public bool ValidateOauthStateToken(string state)
+    {
+        var cookie = _httpContextAccessor.HttpContext?.Request.Cookies["oauth_state"];
+
+        if (string.IsNullOrEmpty(cookie))
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        _httpContextAccessor.HttpContext?.Response.Cookies.Delete("oauth_state");
+        
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(cookie));
+        var token = Convert.ToBase64String(hash);
+        
+        return state == token;
     }
 
     private async Task<RefreshTokenData> GenerateRefreshToken(User user)

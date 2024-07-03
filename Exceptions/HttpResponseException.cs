@@ -9,19 +9,19 @@ public class HttpResponseException : Exception
     public List<string>? Errors = new List<string>();
     public HttpStatusCode StatusCode { get; set; }
 
-    public HttpResponseException(HttpStatusCode statusCode, string title = "", object? details = null, List<string>? errors = null)
+    public HttpResponseException(HttpStatusCode statusCode, string title = "", object? details = null)
     {
         StatusCode = statusCode;
         Title = title;
         Details = details ?? title;
-        Errors = errors;
     }
 
     public object GetValue => new
     {
         title = Title,
         status = StatusCode,
-        message = Details,
-        errors = Errors
+        errors = new {
+            error = Details
+        }
     };
 }

@@ -1,4 +1,4 @@
-﻿namespace SnowrunnerMergerApi.Models.Dtos;
+﻿namespace SnowrunnerMergerApi.Models.Auth.Dtos;
 
 public record LoginResponseDto
 {
