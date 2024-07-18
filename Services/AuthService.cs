@@ -1,5 +1,4 @@
-﻿using System.Buffers.Text;
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -7,7 +6,6 @@ using System.Text;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Newtonsoft.Json;
 using NuGet.Protocol;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
@@ -19,7 +17,7 @@ namespace SnowrunnerMergerApi.Services;
 
 public interface IAuthService
 {
-    Task<User> Register(RegisterDto data);
+    Task<UserConfirmationToken> Register(RegisterDto data);
     Task<LoginResponseDto> Login(LoginDto data);
     Task<LoginResponseDto> RefreshToken(string token);
     JwtData GetUserSessionData();
@@ -27,6 +25,7 @@ public interface IAuthService
     string GenerateOauthStateToken();
     bool ValidateOauthStateToken(string state);
     Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
+    Task<bool> VerifyEmail(Guid userId, string token);
 }
 
 public class AuthService : IAuthService
@@ -36,6 +35,9 @@ public class AuthService : IAuthService
     private readonly IConfiguration _config;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly HttpClient _httpClient;
+    private readonly IEmailSender _emailSender;
+
+    private const int AccessTokenLifetime = 60 * 60 * 3; // 3 hours
 
     public AuthService(
         ILogger<AuthService> logger,
@@ -54,7 +56,7 @@ public class AuthService : IAuthService
         };
     }
 
-    public async Task<User> Register(RegisterDto data)
+    public async Task<UserConfirmationToken> Register(RegisterDto data)
     {
         var passwordErrors = ValidatePassword(data.Password);
         if (passwordErrors.Count > 0)
@@ -88,13 +90,21 @@ public class AuthService : IAuthService
             CreatedAt = DateTime.Now,
             EmailConfirmed = false
         };
-        
-        // TODO: Send confirmation email
-        
+
         await _dbContext.Users.AddAsync(user);
-        await _dbContext.SaveChangesAsync();
+        // await _dbContext.SaveChangesAsync();
         
-        return user;
+        var userConfirmationToken = new UserConfirmationToken
+        {
+            UserId = user.Id,
+            Token = GenerateConfirmationToken(),
+            ExpiresAt = DateTime.Now.AddHours(1)
+        };
+        
+        await _dbContext.UserConfirmationTokens.AddAsync(userConfirmationToken);
+        await _dbContext.SaveChangesAsync();
+
+        return userConfirmationToken;
     }
     
     public async Task<LoginResponseDto> Login(LoginDto data)
@@ -112,9 +122,7 @@ public class AuthService : IAuthService
             throw new HttpResponseException(HttpStatusCode.BadRequest, "Email not confirmed");
         }
         
-        var passwordHash = HashPassword(data.Password, user.PasswordSalt);
-        
-        if (!user.PasswordHash.SequenceEqual(passwordHash))
+        if (!VerifyPassword(user, data.Password))
         {
             throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid email or password");
         }
@@ -126,9 +134,7 @@ public class AuthService : IAuthService
         return new LoginResponseDto
         {
             AccessToken = token,
-            ExpiresIn = 60 * 60 * 24,
-            RefreshToken = sessionData.RefreshToken,
-            RefreshTokenExpiresAt = sessionData.ExpiresAt,
+            ExpiresIn = AccessTokenLifetime,
             User = user
         };
     }
@@ -148,9 +154,7 @@ public class AuthService : IAuthService
         return new LoginResponseDto
         {
             AccessToken = token,
-            ExpiresIn = 60 * 60 * 24,
-            RefreshToken = sessionData.RefreshToken,
-            RefreshTokenExpiresAt = sessionData.ExpiresAt,
+            ExpiresIn = AccessTokenLifetime,
             User = sessionData.User
         };
     }
@@ -251,9 +255,7 @@ public class AuthService : IAuthService
         return new LoginResponseDto
         {
             AccessToken = token,
-            ExpiresIn = 60 * 60 * 24,
-            RefreshToken = sessionData.RefreshToken,
-            RefreshTokenExpiresAt = sessionData.ExpiresAt,
+            ExpiresIn = AccessTokenLifetime,
             User = user
         };
     }
@@ -294,6 +296,55 @@ public class AuthService : IAuthService
         return state == token;
     }
 
+    public async Task<bool> VerifyEmail(Guid userId, string token)
+    {
+        var confirmationToken = await _dbContext.UserConfirmationTokens
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.Token == token);
+        
+        if (confirmationToken is null || confirmationToken.ExpiresAt < DateTime.UtcNow)
+        {
+            return false;
+        }
+
+        var user = confirmationToken.User;
+
+        user.EmailConfirmed = true;
+
+        _dbContext.Users.Update(user);
+        _dbContext.UserConfirmationTokens.Remove(confirmationToken);
+        await _dbContext.SaveChangesAsync();
+        
+        return true;
+    }
+
+    public async Task<bool> RevokeSession(Guid userId, Guid sessionId, string password)
+    {
+        var session = await _dbContext.UserSessions
+            .Include(s => s.User)
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.User.Id == userId);
+        
+        if (session is null || session.ExpiresAt < DateTime.Now)
+        {
+            return true;
+        }
+        
+        var user = session.User;
+
+        if (!VerifyPassword(user, password))
+        {
+            return false;
+        }
+        
+        
+        session.IsRevoked = true;
+        
+        _dbContext.UserSessions.Update(session);
+        await _dbContext.SaveChangesAsync();
+        
+        return true;
+    }
+
     private async Task<RefreshTokenData> GenerateRefreshToken(User user)
     {
         string token;
@@ -314,6 +365,17 @@ public class AuthService : IAuthService
         
         await _dbContext.UserSessions.AddAsync(session);
         await _dbContext.SaveChangesAsync();
+
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Expires = session.ExpiresAt,
+            Path = "/api/auth/refresh"
+        };
+
+        _httpContextAccessor.HttpContext?.Response.Cookies.Append("refresh_token", token, cookieOptions);
         
         return new RefreshTokenData()
         {
@@ -398,7 +460,7 @@ public class AuthService : IAuthService
         {
             new Claim(ClaimTypes.NameIdentifier, data.Id.ToString()),
             new Claim(ClaimTypes.Name, data.Username),
-            new Claim(ClaimTypes.Email, data.Email)
+            new Claim(ClaimTypes.Email, data.Email),
         };
 
         var secret = _config.GetSection("AppSettings:JwtSecret").Value;
@@ -413,7 +475,7 @@ public class AuthService : IAuthService
 
         var token = new JwtSecurityToken(
             claims: claims,
-            expires: DateTime.Now.AddDays(1),
+            expires: DateTime.Now.AddHours(3),
             signingCredentials: creds
         );
 
@@ -447,5 +509,22 @@ public class AuthService : IAuthService
         }
         
         return errors;
+    }
+
+    private string GenerateConfirmationToken()
+    {
+        var tokenBytes = new byte[128];
+
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(tokenBytes);
+
+        return Convert.ToHexString(tokenBytes);
+    }
+
+    private bool VerifyPassword(User user, string password)
+    {
+        var enteredPasswordHash = HashPassword(password, user.PasswordSalt);
+
+        return enteredPasswordHash.SequenceEqual(user.PasswordHash);
     }
 }

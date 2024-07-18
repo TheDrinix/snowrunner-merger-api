@@ -9,38 +9,46 @@ namespace SnowrunnerMergerApi.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AuthController : ControllerBase
+    public class AuthController(IAuthService authService, IEmailSender emailSender) : ControllerBase
     {
-        private readonly IAuthService _authService;
-        public AuthController(IAuthService authService)
-        {
-            _authService = authService;
-        }
-        
         [HttpPost("login")]
-        public async Task<LoginResponseDto> Login([FromBody] LoginDto data)
+        public async Task<ActionResult<LoginResponseDto>> Login([FromBody] LoginDto data)
         {
-            return await _authService.Login(data);
+            return Ok(await authService.Login(data));
         }
         
         [HttpPost("register")]
-        public async Task<User> Register([FromBody] RegisterDto data)
+        public async Task<IActionResult> Register([FromBody] RegisterDto data)
         {
-            return await _authService.Register(data);
+            var confirmationToken = await authService.Register(data);
+            
+            var confirmationUrl = new Uri($"{Request.Scheme}://{Request.Host}/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
+            
+            await emailSender.SendEmailAsync(data.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
+
+            return Created();
         }
         
         [HttpPost("refresh")]
         public async Task<LoginResponseDto> RefreshToken([FromBody] string token)
         {
-            return await _authService.RefreshToken(token);
+            return await authService.RefreshToken(token);
+        }
+        
+        [HttpPost("verify-email")]
+        public async Task<IActionResult> VerifyEmail([FromBody] Guid userId, [FromBody] string token)
+        {
+            var verified = await authService.VerifyEmail(userId, token);
+
+            return verified ? Ok() : BadRequest();
         }
 
         [HttpGet("google/signin")]
         public IActionResult GoogleSignin()
         {
-            var credentials = _authService.GetGoogleCredentials();
+            var credentials = authService.GetGoogleCredentials();
             
-            var state = _authService.GenerateOauthStateToken();
+            var state = authService.GenerateOauthStateToken();
             
             var redirectUrl = Url.Action(nameof(GoogleSigninCallback), "Auth", null, Request.Scheme);
             
@@ -57,7 +65,7 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpGet("google/signin/callback")]
         public async Task<IActionResult> GoogleSigninCallback(string? code, string state, string? error)
         {
-            if (!_authService.ValidateOauthStateToken(state))
+            if (!authService.ValidateOauthStateToken(state))
             {
                 return BadRequest();
             }            
@@ -69,7 +77,7 @@ namespace SnowrunnerMergerApi.Controllers
             
             var redirectUrl = Url.Action(nameof(GoogleSigninCallback), "Auth", null, Request.Scheme);
 
-            var data = await _authService.GoogleSignIn(code, redirectUrl.ToLower());
+            var data = await authService.GoogleSignIn(code, redirectUrl.ToLower());
 
             return Ok(data);
         }

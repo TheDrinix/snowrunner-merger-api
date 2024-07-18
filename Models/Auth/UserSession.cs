@@ -7,10 +7,10 @@ namespace SnowrunnerMergerApi.Models.Auth;
 [PrimaryKey(nameof(Id))]
 public class UserSession
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
     public byte[] RefreshToken { get; set; }
     public DateTime ExpiresAt { get; set; }
-    
+    public bool IsRevoked { get; set; }
     public Guid UserId { get; set; }
     public User User { get; set; }
 }

@@ -4,7 +4,12 @@ using SnowrunnerMergerApi.Models.Auth;
 
 namespace SnowrunnerMergerApi.Services;
 
-public class EmailSender
+public interface IEmailSender
+{
+    Task SendEmailAsync(string email, string subject, string message);
+}
+
+public class EmailSender : IEmailSender
 {
     private readonly ILogger<EmailSender> _logger;
     private readonly IConfiguration _config;
