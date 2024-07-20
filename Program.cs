@@ -1,9 +1,11 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
+using SnowrunnerMergerApi.Extensions;
 using SnowrunnerMergerApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,25 +32,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(connectionString);
 });
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(opt =>
-    {
-        var jwtSecret = builder.Configuration.GetSection("AppSettings:JwtSecret").Value;
-        
-        if (jwtSecret is null)
-        {
-            throw new ArgumentNullException(nameof(jwtSecret));
-        }
-        
-        opt.TokenValidationParameters = new TokenValidationParameters()
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8
-                .GetBytes(jwtSecret)),
-            ValidateIssuer = false,
-            ValidateAudience = false
-        };
-    });
+builder.Services.SetupAuthentication(builder.Configuration);
 
 builder.Services.AddAuthorization();
 

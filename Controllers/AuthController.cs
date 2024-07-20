@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using SnowrunnerMergerApi.Models.Auth;
@@ -36,9 +37,9 @@ namespace SnowrunnerMergerApi.Controllers
         }
         
         [HttpPost("verify-email")]
-        public async Task<IActionResult> VerifyEmail([FromBody] Guid userId, [FromBody] string token)
+        public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailDto data)
         {
-            var verified = await authService.VerifyEmail(userId, token);
+            var verified = await authService.VerifyEmail(data.UserId, data.Token);
 
             return verified ? Ok() : BadRequest();
         }
@@ -80,6 +81,15 @@ namespace SnowrunnerMergerApi.Controllers
             var data = await authService.GoogleSignIn(code, redirectUrl.ToLower());
 
             return Ok(data);
+        }
+
+        [HttpGet("me")]
+        [Authorize]
+        public async Task<ActionResult<User>> UserInfo()
+        {
+            var user = await authService.GetCurrentUser();
+             
+            return Ok(user);
         }
     }
 }

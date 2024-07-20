@@ -21,6 +21,7 @@ public interface IAuthService
     Task<LoginResponseDto> Login(LoginDto data);
     Task<LoginResponseDto> RefreshToken(string token);
     JwtData GetUserSessionData();
+    Task<User> GetCurrentUser();
     GoogleCredentials GetGoogleCredentials();
     string GenerateOauthStateToken();
     bool ValidateOauthStateToken(string state);
@@ -121,15 +122,21 @@ public class AuthService : IAuthService
         {
             throw new HttpResponseException(HttpStatusCode.BadRequest, "Email not confirmed");
         }
-        
+
         if (!VerifyPassword(user, data.Password))
         {
             throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid email or password");
         }
 
-        var token = GenerateJwt(new JwtData() { Id = user.Id, Username = user.Username, Email = user.Email });
-
         var sessionData = await GenerateRefreshToken(user);
+        
+        var token = GenerateJwt(new JwtData()
+        {
+            Id = user.Id, 
+            Username = user.Username, 
+            Email = user.Email,
+            SessionId = sessionData.Id
+        });
         
         return new LoginResponseDto
         {
@@ -141,21 +148,27 @@ public class AuthService : IAuthService
     
     public async Task<LoginResponseDto> RefreshToken(string refreshToken)
     {
-        var sessionData = await ValidateRefreshToken(refreshToken);
+        var session = await ValidateRefreshToken(refreshToken);
         
-        if (sessionData is null)
+        if (session is null)
         {
             throw new HttpResponseException(HttpStatusCode.Unauthorized);
         }
         
-        var token = GenerateJwt(new JwtData() { Id = sessionData.User.Id, Username = sessionData.User.Username, Email = sessionData.User.Email });
+        var token = GenerateJwt(new JwtData()
+        {
+            Id = session.User.Id, 
+            Username = session.User.Username, 
+            Email = session.User.Email,
+            SessionId = session.Id
+        });
         
         
         return new LoginResponseDto
         {
             AccessToken = token,
             ExpiresIn = AccessTokenLifetime,
-            User = sessionData.User
+            User = session.User
         };
     }
 
@@ -166,8 +179,9 @@ public class AuthService : IAuthService
         var id = principal?.FindFirstValue(ClaimTypes.NameIdentifier);
         var username = principal?.FindFirstValue(ClaimTypes.Name);
         var email = principal?.FindFirstValue(ClaimTypes.Email);
+        var sessionId = principal?.FindFirstValue(ClaimTypes.PrimarySid);
         
-        if (id is null || username is null || email is null)
+        if (id is null || username is null || email is null || sessionId is null)
         {
             _logger.LogError("User session data not found");
             throw new HttpResponseException(HttpStatusCode.Unauthorized);
@@ -177,8 +191,25 @@ public class AuthService : IAuthService
         {
             Id = Guid.Parse(id),
             Username = username,
-            Email = email
+            Email = email,
+            SessionId = Guid.Parse(sessionId)
         };
+    }
+
+    public async Task<User> GetCurrentUser()
+    {
+        var userData = GetUserSessionData();
+        
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Id == userData.Id);
+        
+        if (user is null)
+        {
+            _logger.LogError("User not found");
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        return user;
     }
     
     public GoogleCredentials GetGoogleCredentials()
@@ -247,11 +278,17 @@ public class AuthService : IAuthService
             _dbContext.Users.Add(user);
             await _dbContext.SaveChangesAsync();
         }
-        
-        var token = GenerateJwt(new JwtData() { Id = user.Id, Username = user.Username, Email = user.Email });
 
         var sessionData = await GenerateRefreshToken(user);
         
+        var token = GenerateJwt(new JwtData()
+        {
+            Id = user.Id, 
+            Username = user.Username, 
+            Email = user.Email,
+            SessionId = sessionData.Id
+        });
+
         return new LoginResponseDto
         {
             AccessToken = token,
@@ -345,7 +382,7 @@ public class AuthService : IAuthService
         return true;
     }
 
-    private async Task<RefreshTokenData> GenerateRefreshToken(User user)
+    private async Task<UserSession> GenerateRefreshToken(User user)
     {
         string token;
         byte[] encryptedToken;
@@ -377,15 +414,17 @@ public class AuthService : IAuthService
 
         _httpContextAccessor.HttpContext?.Response.Cookies.Append("refresh_token", token, cookieOptions);
         
-        return new RefreshTokenData()
+        /*return new RefreshTokenData()
         {
             ExpiresAt = session.ExpiresAt,
             RefreshToken = token,
             User = user
-        };
+        };*/
+
+        return session;
     }
 
-    private async Task<RefreshTokenData?> ValidateRefreshToken(string token)
+    private async Task<UserSession?> ValidateRefreshToken(string token)
     {
         var encryptedToken = EncryptRefreshToken(token);
 
@@ -410,13 +449,8 @@ public class AuthService : IAuthService
         session.ExpiresAt = DateTime.Now.AddDays(7);
         session.RefreshToken = newEncryptedToken;
         await _dbContext.SaveChangesAsync();
-        
-        return new RefreshTokenData()
-        {
-            ExpiresAt = session.ExpiresAt,
-            RefreshToken = newRefreshToken,
-            User = session.User
-        };
+
+        return session;
     }
     
     private byte[] EncryptRefreshToken(string token)
@@ -461,6 +495,7 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.NameIdentifier, data.Id.ToString()),
             new Claim(ClaimTypes.Name, data.Username),
             new Claim(ClaimTypes.Email, data.Email),
+            new Claim(ClaimTypes.PrimarySid, data.SessionId.ToString())
         };
 
         var secret = _config.GetSection("AppSettings:JwtSecret").Value;
