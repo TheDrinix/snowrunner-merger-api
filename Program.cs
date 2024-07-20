@@ -39,6 +39,8 @@ builder.Services.AddAuthorization();
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IGroupsService, GroupsService>();
+builder.Services.AddScoped<ISavesService, SavesService>();
 builder.Services.AddTransient<IEmailSender, EmailSender>();
 
 var app = builder.Build();
