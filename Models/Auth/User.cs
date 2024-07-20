@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Serialization;
+using SnowrunnerMergerApi.Models.Saves;
 
 namespace SnowrunnerMergerApi.Models.Auth;
 
@@ -20,4 +21,8 @@ public class User
     public DateTime CreatedAt { get; set; }
     [JsonIgnore]
     public List<UserSession> UserSessions { get; set; }
+    [JsonIgnore]
+    public List<SaveGroup> JoinedGroups { get; set; }
+    [JsonIgnore]
+    public List<SaveGroup> OwnedGroups { get; set; }
 }

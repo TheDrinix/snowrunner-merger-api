@@ -1,19 +1,17 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ValueGeneration;
 using SnowrunnerMergerApi.Models.Auth;
+using SnowrunnerMergerApi.Models.Saves;
 
 namespace SnowrunnerMergerApi.Data;
 
-public class AppDbContext : DbContext
+public class AppDbContext(DbContextOptions<AppDbContext> opt) : DbContext(opt)
 {
-    
     public DbSet<User> Users { get; set; }
     public DbSet<UserSession> UserSessions { get; set; }
     public DbSet<UserConfirmationToken> UserConfirmationTokens { get; set; }
-    public AppDbContext(DbContextOptions<AppDbContext> opt) : base(opt)
-    {
-        
-    }
+    public DbSet<StoredSaveInfo> StoredSaves { get; set; }
+    public DbSet<SaveGroup> SaveGroups { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,5 +47,27 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.UserId)
             .HasPrincipalKey(u => u.Id)
             .OnDelete(DeleteBehavior.Cascade);
+        
+        modelBuilder
+            .Entity<SaveGroup>()
+            .Property(g => g.Id)
+            .HasValueGenerator<GuidValueGenerator>();
+        
+        modelBuilder
+            .Entity<StoredSaveInfo>()
+            .Property(s => s.Id)
+            .HasValueGenerator<GuidValueGenerator>();
+        
+        modelBuilder.Entity<SaveGroup>()
+            .HasOne<User>(g => g.Owner)
+            .WithMany(u => u.OwnedGroups)
+            .HasForeignKey(g => g.OwnerId)
+            .HasPrincipalKey(u => u.Id)
+            .IsRequired()
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SaveGroup>()
+            .HasMany<User>(g => g.Members)
+            .WithMany(u => u.JoinedGroups);
     }
 }
