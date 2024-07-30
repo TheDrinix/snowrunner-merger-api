@@ -6,12 +6,14 @@ using System.Text;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Net.Http.Headers;
 using NuGet.Protocol;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Models.Auth.Google;
+using SameSiteMode = Microsoft.AspNetCore.Http.SameSiteMode;
 
 namespace SnowrunnerMergerApi.Services;
 
@@ -36,7 +38,8 @@ public class AuthService : IAuthService
     private readonly IConfiguration _config;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly HttpClient _httpClient;
-    private readonly IEmailSender _emailSender;
+    private readonly IWebHostEnvironment _webHostEnvironment;
+    private readonly SameSiteMode _sameSiteMode = SameSiteMode.Lax;
 
     private const int AccessTokenLifetime = 60 * 60 * 3; // 3 hours
 
@@ -44,17 +47,24 @@ public class AuthService : IAuthService
         ILogger<AuthService> logger,
         AppDbContext dbContext,
         IConfiguration config,
-        IHttpContextAccessor httpContextAccessor
+        IHttpContextAccessor httpContextAccessor,
+        IWebHostEnvironment webHostEnvironment
     )
     {
         _logger = logger;
         _dbContext = dbContext;
         _config = config;
         _httpContextAccessor = httpContextAccessor;
+        _webHostEnvironment = webHostEnvironment;
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri("https://www.googleapis.com")
         };
+
+        if (_webHostEnvironment.IsDevelopment())
+        {
+            _sameSiteMode = SameSiteMode.None;
+        }
     }
 
     public async Task<UserConfirmationToken> Register(RegisterDto data)
@@ -265,7 +275,7 @@ public class AuthService : IAuthService
         {
             user = new User()
             {
-                Username = userData.Name,
+                Username = userData.FirstName,
                 Email = userData.Email,
                 EmailConfirmed = true,
                 NormalizedEmail = userData.Email.ToUpper(),
@@ -301,19 +311,18 @@ public class AuthService : IAuthService
     {
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
-        var cookieOptions = new CookieOptions
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        var hashedToken = Convert.ToHexString(hash);
+        
+        _httpContextAccessor.HttpContext?.Response.Cookies.Append("oauth_state", token, new CookieOptions
         {
             HttpOnly = true,
+            SameSite = _sameSiteMode,
             Secure = true,
-            SameSite = SameSiteMode.Lax
-        };
+            Expires = DateTime.Now.AddMinutes(5)
+        });
 
-        _httpContextAccessor.HttpContext?.Response.Cookies.Append("oauth_state", token, cookieOptions);
-
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
-        token = Convert.ToBase64String(hash);
-
-        return token;
+        return hashedToken;
     }
     
     public bool ValidateOauthStateToken(string state)
@@ -325,10 +334,10 @@ public class AuthService : IAuthService
             throw new HttpResponseException(HttpStatusCode.Unauthorized);
         }
         
-        _httpContextAccessor.HttpContext?.Response.Cookies.Delete("oauth_state");
+        _httpContextAccessor.HttpContext?.Response.Cookies.Delete("oauth_state", new CookieOptions() { SameSite = _sameSiteMode, Secure = true });
         
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(cookie));
-        var token = Convert.ToBase64String(hash);
+        var token = Convert.ToHexString(hash);
         
         return state == token;
     }
@@ -397,7 +406,7 @@ public class AuthService : IAuthService
         {
             User = user,
             RefreshToken = encryptedToken,
-            ExpiresAt = DateTime.Now.AddDays(7)
+            ExpiresAt = DateTime.Now.AddDays(7),
         };
         
         await _dbContext.UserSessions.AddAsync(session);
@@ -407,7 +416,7 @@ public class AuthService : IAuthService
         {
             HttpOnly = true,
             Secure = true,
-            SameSite = SameSiteMode.Strict,
+            SameSite = _sameSiteMode,
             Expires = session.ExpiresAt,
             Path = "/api/auth/refresh"
         };
@@ -449,6 +458,17 @@ public class AuthService : IAuthService
         session.ExpiresAt = DateTime.Now.AddDays(7);
         session.RefreshToken = newEncryptedToken;
         await _dbContext.SaveChangesAsync();
+        
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = _sameSiteMode,
+            Expires = session.ExpiresAt,
+            Path = "/api/auth/refresh"
+        };
+        
+        _httpContextAccessor.HttpContext?.Response.Cookies.Append("refresh_token", newRefreshToken, cookieOptions);
 
         return session;
     }

@@ -1,11 +1,8 @@
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.IdentityModel.Tokens;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Extensions;
+using SnowrunnerMergerApi.Models;
 using SnowrunnerMergerApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -32,12 +29,24 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(connectionString);
 });
 
+builder.Services.AddCors(opt =>
+{
+    opt.AddPolicy("dev", policy =>
+    {
+        policy.WithOrigins("https://localhost:44303", "http://localhost:5173");
+        policy.AllowAnyHeader();
+        policy.AllowAnyMethod();
+        policy.AllowCredentials();
+    });
+});
+
 builder.Services.SetupAuthentication(builder.Configuration);
 
 builder.Services.AddAuthorization();
 
 builder.Services.AddHttpContextAccessor();
 
+builder.Services.AddAutoMapper(typeof(MapperProfile));
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IGroupsService, GroupsService>();
 builder.Services.AddScoped<ISavesService, SavesService>();
@@ -54,6 +63,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors("dev");
 
 app.UseAuthentication();
 app.UseAuthorization();

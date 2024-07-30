@@ -12,4 +12,6 @@ public record GoogleUserData
     public bool EmailVerified { get; set; }
     [JsonPropertyName("name")]
     public string Name { get; set; }
+    [JsonPropertyName("given_name")]
+    public string FirstName { get; set; }
 };
