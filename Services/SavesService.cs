@@ -1,5 +1,6 @@
 ﻿using System.IO.Compression;
 using System.Net;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SnowrunnerMergerApi.Data;
@@ -12,11 +13,13 @@ namespace SnowrunnerMergerApi.Services;
 public interface ISavesService
 {
     Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data);
+    Task<string> MergeSaves(Guid groupId, MergeSavesDto data, int storedSaveNumber);
 }
 
 public class SavesService : ISavesService
 {
     private static readonly string StorageDir = Path.Join("storage", "saves");
+    private static readonly string TmpStorageDir = Path.Join(StorageDir, "tmp");
     public static readonly int MaxSaveSize = 50 * 1024 * 1024;
 
     private readonly ILogger<SavesService> _logger;
@@ -37,6 +40,8 @@ public class SavesService : ISavesService
     }
     public async Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data)
     {
+        if (data.Save.ContentType != "application/zip") throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid file type");
+        
         var sessionData = _authService.GetUserSessionData();
         
         var group = _dbContext.SaveGroups
@@ -46,6 +51,13 @@ public class SavesService : ISavesService
         if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
 
         if (!group.OwnerId.Equals(sessionData.Id)) throw new HttpResponseException(HttpStatusCode.Unauthorized);
+
+        
+        StoredSaveInfo? oldestSave = null; 
+        if (group.StoredSaves.Count >= 3)
+        {
+            oldestSave = group.StoredSaves.OrderBy(s => s.UploadedAt).First();
+        }
 
         var saveInfo = new StoredSaveInfo
         {
@@ -94,23 +106,235 @@ public class SavesService : ISavesService
 
         await _dbContext.SaveChangesAsync();
 
+        if (oldestSave is not null)
+        {
+            await RemoveSave(oldestSave.SaveGroupId);
+        }
+
         return saveInfo;
+    }
+    
+    public async Task<string> MergeSaves(Guid groupId, MergeSavesDto data, int storedSaveNumber)
+    {
+        if (data.Save.ContentType != "application/zip") throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid file type");
+        
+        var sessionData = _authService.GetUserSessionData();
+        
+        var group = _dbContext.SaveGroups
+            .Include(g => g.Members)
+            .FirstOrDefault(g => g.Id == groupId);
+        
+        if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
+        
+        if (group.Members.All(m => !m.Id.Equals(sessionData.Id))) throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        
+        var saves = _dbContext.StoredSaves
+            .Where(s => s.SaveGroupId == groupId)
+            .OrderBy(s => s.UploadedAt)
+            .ToList();
+        
+        if (saves.Count < storedSaveNumber) storedSaveNumber = saves.Count - 1;
+        
+        if (storedSaveNumber < 0) throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid save number");
+        
+        if (!Directory.Exists(TmpStorageDir)) Directory.CreateDirectory(TmpStorageDir);
+        
+        var tmpStorage = Path.Join(TmpStorageDir, sessionData.Id.ToString());
+        var tmpSaveStorage = Path.Join(tmpStorage, "save");
+        var outputDirectory = Path.Join(tmpStorage, "output");
+        
+        if (Directory.Exists(tmpStorage)) Directory.Delete(tmpStorage, true);
+
+        Directory.CreateDirectory(tmpStorage);
+        Directory.CreateDirectory(tmpSaveStorage);
+        Directory.CreateDirectory(outputDirectory);
+
+        var zippedSavePath = Path.Join(tmpSaveStorage, "tmp.zip");
+        await using var stream = new FileStream(zippedSavePath, FileMode.Create);
+
+        await data.Save.CopyToAsync(stream);
+        
+        stream.Close();
+
+        var zippedSave = ZipFile.OpenRead(zippedSavePath);
+
+        var declaredSize = zippedSave.Entries.Sum(e => e.Length);
+        if (declaredSize > MaxSaveSize)
+        {
+            Directory.Delete(tmpSaveStorage, true);
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Save is too big");
+        }
+        
+        zippedSave.Dispose();
+        
+        ZipFile.ExtractToDirectory(zippedSavePath, tmpSaveStorage, overwriteFiles: true);
+        
+        File.Delete(zippedSavePath);
+        
+        if (!ValidateSaveFiles(tmpSaveStorage, data.SaveNumber))
+        {
+            Directory.Delete(tmpSaveStorage, true);
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Save is invalid");
+        }
+
+        var storedSaveData = saves[storedSaveNumber];
+        
+        var storedSaveDirectory = Path.Join(StorageDir, storedSaveData.Id.ToString());
+        
+        var mapDataFilesRegex = new Regex($@"\b({(storedSaveData.SaveNumber > 0 ? storedSaveData.SaveNumber.ToString() + '_' : "")}(fog|sts)_.*\.dat)\b", RegexOptions.Multiline);
+
+        var mapDataFiles = Directory
+            .GetFiles(storedSaveDirectory)
+            .Where(f => mapDataFilesRegex.IsMatch(Path.GetFileName(f)));
+        
+        // Copy map data files to output from stored save
+        foreach (var file in mapDataFiles)
+        {
+            var currentFileName = Path.GetFileName(file);
+            var filePrefix = data.OutputSaveNumber > 0 ? data.OutputSaveNumber.ToString() + '_' : "";
+            var outputFileName = data.SaveNumber == 0
+                ? filePrefix + currentFileName
+                : filePrefix + currentFileName[2..];
+            var outputFilePath = Path.Join(outputDirectory, outputFileName);
+            
+            File.Copy(file, outputFilePath, overwrite: true);
+        }
+
+        var uploadedSave = LoadSave(tmpSaveStorage, data.SaveNumber);
+        var uploadedSaveFilePath = Path.Join(tmpSaveStorage, $"CompleteSave{(data.SaveNumber > 0 ? data.SaveNumber.ToString() : "")}.dat");
+        if (File.Exists(uploadedSaveFilePath))
+        {
+            File.Delete(uploadedSaveFilePath);
+        }
+        
+        var storedSave = LoadSave(storedSaveDirectory, storedSaveNumber);
+        
+        if (uploadedSave is null || storedSave is null)
+        {
+            Directory.Delete(tmpStorage, true);
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Save is invalid");
+        }
+        
+        var outputSaveData = MergeSaveData(uploadedSave, storedSave, data.OutputSaveNumber);
+        
+        if (outputSaveData is null)
+        {
+            Directory.Delete(tmpStorage, true);
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Save is invalid");
+        }
+
+        var outputSave = new Dictionary<string, dynamic>()
+        {
+            { $"CompleteSave{(data.OutputSaveNumber > 0 ? data.OutputSaveNumber.ToString() : "")}", outputSaveData },
+            { "cfg_version", uploadedSave.RawSaveData["cfg_version"] }
+        };
+        
+        var outputSaveJson = JsonSerializer.Serialize(outputSave);
+        var outputSavePath = Path.Join(outputDirectory,
+            $"CompleteSave{(data.OutputSaveNumber > 0 ? data.OutputSaveNumber.ToString() : "")}.dat");
+        
+        await File.WriteAllTextAsync(outputSavePath, outputSaveJson);
+        
+        var outputZipPath = Path.Join(tmpStorage, "output.zip");
+        
+        if (File.Exists(outputZipPath)) File.Delete(outputZipPath);
+        
+        ZipFile.CreateFromDirectory(outputDirectory, outputZipPath);
+        
+        Directory.Delete(tmpSaveStorage, true);
+        Directory.Delete(outputDirectory, true);
+
+        return outputZipPath;
+    }
+
+
+    public Task RemoveSave(Guid saveId)
+    {
+        var sessionData = _authService.GetUserSessionData();
+        
+        var save = _dbContext.StoredSaves
+            .Include(s => s.SaveGroup)
+            .FirstOrDefault(s => s.Id == saveId);
+        
+        if (save is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Save not found");
+        
+        if (!save.SaveGroup.OwnerId.Equals(sessionData.Id)) throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        
+        Directory.Delete(Path.Join(StorageDir, saveId.ToString()), true);
+        
+        _dbContext.StoredSaves.Remove(save);
+        
+        return _dbContext.SaveChangesAsync();
+    }
+    
+    private SaveData? MergeSaveData(Save uploadedSave, Save storedSave, int outputSaveNumber)
+    {
+        if (uploadedSave.SaveData is null || storedSave.SaveData is null) return null;
+        
+        var uploadedProfileData = uploadedSave.SaveData.SslValue.persistentProfileData;
+        var storedProfileData = storedSave.SaveData.SslValue.persistentProfileData;
+
+        uploadedProfileData.newTrucks = uploadedProfileData.newTrucks.Union(storedProfileData.newTrucks).ToList();
+
+        uploadedProfileData.discoveredUpgrades = Helpers.MergeDictionaries(
+            uploadedProfileData.discoveredUpgrades,
+            storedProfileData.discoveredUpgrades
+        );
+
+        uploadedProfileData.discoveredUpgrades = Helpers.MergeDictionaries(
+            uploadedProfileData.discoveredUpgrades,
+            storedProfileData.discoveredUpgrades
+        );
+
+        uploadedProfileData.contestTimes = Helpers.MergeDictionaries(
+            uploadedProfileData.contestTimes,
+            storedProfileData.contestTimes
+        );
+
+        var outputSaveData = storedSave.SaveData;
+        outputSaveData.SslValue.persistentProfileData = uploadedProfileData;
+        outputSaveData.SslValue.gameStat = uploadedSave.SaveData.SslValue.gameStat;
+        outputSaveData.SslValue.garagesData = uploadedSave.SaveData.SslValue.garagesData;
+        outputSaveData.SslValue.waypoints = uploadedSave.SaveData.SslValue.waypoints;
+        outputSaveData.SslValue.saveId = outputSaveNumber;
+        
+        return outputSaveData;
     }
 
     private bool ValidateSaveFiles(string path, int saveNumber)
     {
         saveNumber--;
-
+        
         var saveFileName = $"CompleteSave{(saveNumber > 0 ? saveNumber : "")}.dat";
-        var files = Directory.GetFiles(path);
+        var files = Directory
+            .GetFiles(path)
+            .Select(Path.GetFileName)
+            .ToList();
 
         if (!files.Contains(saveFileName)) return false;
         
         var mapDataRegex = new Regex($@"\b({(saveNumber > 0 ? saveNumber.ToString() + '_' : "")}(fog|sts)_.*\.dat)\b", RegexOptions.Multiline);
         
         // Count the number of files matching the regex
-        var count = files.Count(file => mapDataRegex.IsMatch(file));
+        var count = files.Count(file => mapDataRegex.IsMatch(Path.GetFileName(file)));
 
         return count >= 2;
+    }
+
+    private Save? LoadSave(string saveFileDirectory, int saveFileNumber)
+    {
+        var saveFilePath = Path.Join(saveFileDirectory, $"CompleteSave{(saveFileNumber > 0 ? saveFileNumber.ToString() : "")}.dat");
+
+        if (!File.Exists(saveFilePath)) return null;
+
+        var saveFileJson = File.ReadAllText(saveFilePath);
+        if (saveFileJson[^1] != '}')
+        {
+            saveFileJson = saveFileJson.Remove(saveFileJson.Length - 1, 1);
+        }
+
+        var saveFileData = JsonSerializer.Deserialize<Dictionary<string, dynamic>>(saveFileJson);
+        
+        return saveFileData is null ? null : new Save(saveFileData, saveFileNumber);
     }
 }

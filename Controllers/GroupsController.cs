@@ -1,3 +1,4 @@
+using AutoMapper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
@@ -13,20 +14,21 @@ namespace SnowrunnerMergerApi.Controllers
     public class GroupsController(
         IAuthService authService, 
         IGroupsService groupsService,
-        ISavesService savesService) : ControllerBase
+        ISavesService savesService,
+        IMapper mapper) : ControllerBase
     {
         [HttpGet]
-        public async Task<ActionResult<ICollection<SaveGroup>>> GetGroups()
+        public async Task<ActionResult<ICollection<GroupDto>>> GetGroups()
         {
             var sessionData = authService.GetUserSessionData();
 
             var groups = await groupsService.GetUserGroups(sessionData.Id);
             
-            return Ok(groups);
+            return Ok(mapper.Map<ICollection<GroupDto>>(groups));
         }
         
         [HttpGet("{groupId}")]
-        public async Task<ActionResult<SaveGroup>> GetGroup(Guid groupId)
+        public async Task<ActionResult<GroupDto>> GetGroup(Guid groupId)
         {
             var sessionData = authService.GetUserSessionData();
             
@@ -34,7 +36,7 @@ namespace SnowrunnerMergerApi.Controllers
             
             if (group is null) return NotFound();
             
-            return Ok(group);
+            return Ok(mapper.Map<GroupDto>(group));
         }
         
         [HttpPost]
@@ -48,13 +50,13 @@ namespace SnowrunnerMergerApi.Controllers
         }
         
         [HttpPost("{groupId:guid}/join")]
-        public async Task<ActionResult<SaveGroup>> JoinGroup(Guid groupId)
+        public async Task<ActionResult<GroupDto>> JoinGroup(Guid groupId)
         {
             var sessionData = authService.GetUserSessionData();
             
             var group = await groupsService.JoinGroup(groupId, sessionData.Id);
             
-            return Ok(group);
+            return Ok(mapper.Map<GroupDto>(group));
         }
         
         [HttpPost("{groupId:guid}/leave")]
@@ -73,6 +75,17 @@ namespace SnowrunnerMergerApi.Controllers
             var save = await savesService.StoreSave(groupId, data);
             
             return Ok(save);
+        }
+
+        [HttpPost("{groupid:guid}/merge")]
+        public async Task<IActionResult> MergeSaves([FromRoute] Guid groupId, [FromForm] MergeSavesDto data, [FromQuery] int storedSaveNumber = 0)
+        {
+            var saveZipPath = await savesService.MergeSaves(groupId, data, storedSaveNumber);
+
+            var fs = new FileStream(saveZipPath, FileMode.Open, FileAccess.Read, FileShare.None, 4096,
+                FileOptions.DeleteOnClose);
+
+            return File(fs, contentType: "application/zip", fileDownloadName: "output.zip");
         }
     }
 }
