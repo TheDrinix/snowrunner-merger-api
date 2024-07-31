@@ -70,7 +70,7 @@ public class SavesService : ISavesService
         {
             Description = data.Description,
             SaveNumber = data.SaveNumber,
-            UploadedAt = DateTime.Now,
+            UploadedAt = DateTime.UtcNow,
             SaveGroupId = group.Id
         };
         

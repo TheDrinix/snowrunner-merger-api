@@ -98,7 +98,7 @@ public class AuthService : IAuthService
             NormalizedUsername = normalizedUsername,
             PasswordHash = HashPassword(data.Password, salt),
             PasswordSalt = salt,
-            CreatedAt = DateTime.Now,
+            CreatedAt = DateTime.UtcNow,
             EmailConfirmed = false
         };
 
@@ -109,7 +109,7 @@ public class AuthService : IAuthService
         {
             UserId = user.Id,
             Token = GenerateConfirmationToken(),
-            ExpiresAt = DateTime.Now.AddHours(1)
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
         };
         
         await _dbContext.UserConfirmationTokens.AddAsync(userConfirmationToken);
@@ -319,7 +319,7 @@ public class AuthService : IAuthService
             HttpOnly = true,
             SameSite = _sameSiteMode,
             Secure = true,
-            Expires = DateTime.Now.AddMinutes(5)
+            Expires = DateTime.UtcNow.AddMinutes(5)
         });
 
         return hashedToken;
@@ -370,7 +370,7 @@ public class AuthService : IAuthService
             .Include(s => s.User)
             .FirstOrDefaultAsync(s => s.Id == sessionId && s.User.Id == userId);
         
-        if (session is null || session.ExpiresAt < DateTime.Now)
+        if (session is null || session.ExpiresAt < DateTime.UtcNow)
         {
             return true;
         }
@@ -406,7 +406,7 @@ public class AuthService : IAuthService
         {
             User = user,
             RefreshToken = encryptedToken,
-            ExpiresAt = DateTime.Now.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
         };
         
         await _dbContext.UserSessions.AddAsync(session);
@@ -441,7 +441,7 @@ public class AuthService : IAuthService
             .Include(s => s.User)
             .FirstOrDefaultAsync(s => s.RefreshToken == encryptedToken);
         
-        if (session is null || session.ExpiresAt < DateTime.Now)
+        if (session is null || session.ExpiresAt < DateTime.UtcNow)
         {
             return null;
         }
@@ -455,7 +455,7 @@ public class AuthService : IAuthService
             newEncryptedToken = EncryptRefreshToken(newRefreshToken);
         } while (_dbContext.UserSessions.FirstOrDefault(s => s.RefreshToken == newEncryptedToken) is not null);
         
-        session.ExpiresAt = DateTime.Now.AddDays(7);
+        session.ExpiresAt = DateTime.UtcNow.AddDays(7);
         session.RefreshToken = newEncryptedToken;
         await _dbContext.SaveChangesAsync();
         
@@ -530,7 +530,7 @@ public class AuthService : IAuthService
 
         var token = new JwtSecurityToken(
             claims: claims,
-            expires: DateTime.Now.AddHours(3),
+            expires: DateTime.UtcNow.AddHours(3),
             signingCredentials: creds
         );
 
