@@ -12,8 +12,9 @@ namespace SnowrunnerMergerApi.Services;
 
 public interface ISavesService
 {
-    Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data);
+    Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data, int saveSlot);
     Task<string> MergeSaves(Guid groupId, MergeSavesDto data, int storedSaveNumber);
+    Task RemoveSave(Guid saveId);
 }
 
 public class SavesService : ISavesService
@@ -38,7 +39,7 @@ public class SavesService : ISavesService
         
         if (!Directory.Exists(StorageDir)) Directory.CreateDirectory(StorageDir);
     }
-    public async Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data)
+    public async Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data, int saveSlot)
     {
         if (data.Save.ContentType != "application/zip") throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid file type");
         
@@ -51,12 +52,18 @@ public class SavesService : ISavesService
         if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
 
         if (!group.OwnerId.Equals(sessionData.Id)) throw new HttpResponseException(HttpStatusCode.Unauthorized);
-
         
         StoredSaveInfo? oldestSave = null; 
         if (group.StoredSaves.Count >= 3)
         {
-            oldestSave = group.StoredSaves.OrderBy(s => s.UploadedAt).First();
+            if ( saveSlot < 0 || saveSlot >= group.StoredSaves.Count)
+            {
+                oldestSave = group.StoredSaves.OrderBy(s => s.UploadedAt).First();
+            }
+            else
+            {
+                oldestSave = group.StoredSaves.OrderByDescending(s => s.UploadedAt).ElementAt(saveSlot);
+            }
         }
 
         var saveInfo = new StoredSaveInfo
@@ -108,7 +115,7 @@ public class SavesService : ISavesService
 
         if (oldestSave is not null)
         {
-            await RemoveSave(oldestSave.SaveGroupId);
+            await RemoveSave(oldestSave);
         }
 
         return saveInfo;
@@ -130,7 +137,7 @@ public class SavesService : ISavesService
         
         var saves = _dbContext.StoredSaves
             .Where(s => s.SaveGroupId == groupId)
-            .OrderBy(s => s.UploadedAt)
+            .OrderByDescending(s => s.UploadedAt)
             .ToList();
         
         if (saves.Count < storedSaveNumber) storedSaveNumber = saves.Count - 1;
@@ -259,8 +266,13 @@ public class SavesService : ISavesService
         if (save is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Save not found");
         
         if (!save.SaveGroup.OwnerId.Equals(sessionData.Id)) throw new HttpResponseException(HttpStatusCode.Unauthorized);
-        
-        Directory.Delete(Path.Join(StorageDir, saveId.ToString()), true);
+
+        return RemoveSave(save);
+    }
+
+    private Task RemoveSave(StoredSaveInfo save)
+    {
+        Directory.Delete(Path.Join(StorageDir, save.Id.ToString()), true);
         
         _dbContext.StoredSaves.Remove(save);
         
@@ -303,8 +315,6 @@ public class SavesService : ISavesService
 
     private bool ValidateSaveFiles(string path, int saveNumber)
     {
-        saveNumber--;
-        
         var saveFileName = $"CompleteSave{(saveNumber > 0 ? saveNumber : "")}.dat";
         var files = Directory
             .GetFiles(path)

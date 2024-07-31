@@ -27,7 +27,7 @@ namespace SnowrunnerMergerApi.Controllers
             return Ok(mapper.Map<ICollection<GroupDto>>(groups));
         }
         
-        [HttpGet("{groupId}")]
+        [HttpGet("{groupId:guid}")]
         public async Task<ActionResult<GroupDto>> GetGroup(Guid groupId)
         {
             var sessionData = authService.GetUserSessionData();
@@ -37,6 +37,20 @@ namespace SnowrunnerMergerApi.Controllers
             if (group is null) return NotFound();
             
             return Ok(mapper.Map<GroupDto>(group));
+        }
+        
+        [HttpGet("{groupId:guid}/saves")]
+        public async Task<ActionResult<ICollection<StoredSaveInfo>>> GetGroupSaves(Guid groupId)
+        {
+            var sessionData = authService.GetUserSessionData();
+            
+            var group = await groupsService.GetGroupData(groupId, sessionData.Id);
+            
+            if (group is null) return NotFound();
+
+            var saves = group.StoredSaves.OrderByDescending(s => s.UploadedAt);
+            
+            return Ok(saves);
         }
         
         [HttpPost]
@@ -68,11 +82,11 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpPost("{groupId:guid}/upload")]
-        public async Task<IActionResult> UploadSave([FromRoute] Guid groupId, [FromForm] UploadSaveDto data)
+        public async Task<IActionResult> UploadSave([FromRoute] Guid groupId, [FromForm] UploadSaveDto data, [FromQuery] int saveSlot = -1)
         {
             if (data.Save.Length > SavesService.MaxSaveSize) return BadRequest();
             
-            var save = await savesService.StoreSave(groupId, data);
+            var save = await savesService.StoreSave(groupId, data, saveSlot);
             
             return Ok(save);
         }
@@ -86,6 +100,14 @@ namespace SnowrunnerMergerApi.Controllers
                 FileOptions.DeleteOnClose);
 
             return File(fs, contentType: "application/zip", fileDownloadName: "output.zip");
+        }
+
+        [HttpDelete("{groupId:guid}/saves/{saveId:guid}")]
+        public async Task<IActionResult> DeleteSave(Guid saveId)
+        {
+            await savesService.RemoveSave(saveId);
+            
+            return NoContent();
         }
     }
 }
