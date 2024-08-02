@@ -15,17 +15,16 @@ public interface IGroupsService
     Task<SaveGroup> CreateGroup(string name, Guid userId);
     Task<SaveGroup> JoinGroup(Guid groupId, Guid userId);
     Task LeaveGroup(Guid groupId);
+    Task RemoveGroup(Guid groupId);
 }
 
-public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext, IAuthService authService) : IGroupsService
+public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext, IAuthService authService, ISavesService savesService) : IGroupsService
 {
     private readonly ILogger<GroupsService> _logger = logger;
-    private readonly AppDbContext _dbContext = dbContext;
-    private readonly IAuthService _authService = authService;
-    
+
     public async Task<SaveGroup?> GetGroup(Guid groupId)
     {
-        return await _dbContext.SaveGroups
+        return await dbContext.SaveGroups
             .Include(g => g.Owner)
             .Include(g => g.Members)
             .Include(g => g.StoredSaves)
@@ -43,7 +42,7 @@ public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext
 
     public async Task<ICollection<SaveGroup>> GetUserGroups(Guid userId)
     {
-        var user = await _dbContext.Users
+        var user = await dbContext.Users
             .Include(u => u.JoinedGroups)
             .ThenInclude(g => g.Members)
             .Include(u => u.JoinedGroups)
@@ -55,7 +54,7 @@ public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext
 
     public async Task<SaveGroup> CreateGroup(string name, Guid userId)
     {
-        var user = await _dbContext.Users
+        var user = await dbContext.Users
             .Include(u => u.OwnedGroups)
             .IgnoreAutoIncludes()
             .FirstOrDefaultAsync(u => u.Id == userId);
@@ -71,43 +70,62 @@ public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext
             Members = new List<User>() { user }
         };
         
-        await _dbContext.SaveGroups.AddAsync(group);
-        await _dbContext.SaveChangesAsync();
+        await dbContext.SaveGroups.AddAsync(group);
+        await dbContext.SaveChangesAsync();
         
         return group;
     }
 
     public async Task<SaveGroup> JoinGroup(Guid groupId, Guid userId)
     {
-        var group = await _dbContext.SaveGroups
+        var group = await dbContext.SaveGroups
             .Include(g => g.Members)
             .FirstOrDefaultAsync(g => g.Id == groupId);
         
         if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
 
-        var user = await _authService.GetCurrentUser();
+        var user = await authService.GetCurrentUser();
         
         group.Members.Add(user);
         
-        _dbContext.SaveGroups.Update(group);
-        await _dbContext.SaveChangesAsync();
+        dbContext.SaveGroups.Update(group);
+        await dbContext.SaveChangesAsync();
         
         return group;
     }
     
     public async Task LeaveGroup(Guid groupId)
     {
-        var group = await _dbContext.SaveGroups
+        var group = await dbContext.SaveGroups
             .Include(g => g.Members)
             .FirstOrDefaultAsync(g => g.Id == groupId);
         
         if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
         
-        var user = await _authService.GetCurrentUser();
+        var user = await authService.GetCurrentUser();
         
         group.Members.Remove(user);
         
-        _dbContext.SaveGroups.Update(group);
-        await _dbContext.SaveChangesAsync();
+        dbContext.SaveGroups.Update(group);
+        await dbContext.SaveChangesAsync();
+    }
+
+    public async Task RemoveGroup(Guid groupId)
+    {
+        var userSession = authService.GetUserSessionData();
+        
+        var group = await GetGroupData(groupId, userSession.Id);
+        
+        if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
+        
+        if (group.Owner.Id != userSession.Id) throw new HttpResponseException(HttpStatusCode.Forbidden, "You don't own this group");
+        
+        foreach (var save in group.StoredSaves)
+        {
+            await savesService.RemoveSave(save);
+        }
+        
+        dbContext.SaveGroups.Remove(group);
+        await dbContext.SaveChangesAsync();
     }
 }

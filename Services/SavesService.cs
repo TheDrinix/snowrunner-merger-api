@@ -15,6 +15,7 @@ public interface ISavesService
     Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data, int saveSlot);
     Task<string> MergeSaves(Guid groupId, MergeSavesDto data, int storedSaveNumber);
     Task RemoveSave(Guid saveId);
+    Task RemoveSave(StoredSaveInfo save);
 }
 
 public class SavesService : ISavesService
@@ -270,9 +271,14 @@ public class SavesService : ISavesService
         return RemoveSave(save);
     }
 
-    private Task RemoveSave(StoredSaveInfo save)
+    public Task RemoveSave(StoredSaveInfo save)
     {
-        Directory.Delete(Path.Join(StorageDir, save.Id.ToString()), true);
+        var saveDirectory = Path.Join(StorageDir, save.Id.ToString());
+        
+        if (Directory.Exists(saveDirectory))
+        {
+            Directory.Delete(saveDirectory, true);
+        }
         
         _dbContext.StoredSaves.Remove(save);
         

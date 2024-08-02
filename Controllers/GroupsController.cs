@@ -73,7 +73,7 @@ namespace SnowrunnerMergerApi.Controllers
             return Ok(mapper.Map<GroupDto>(group));
         }
         
-        [HttpPost("{groupId:guid}/leave")]
+        [HttpDelete("{groupId:guid}/leave")]
         public async Task<IActionResult> LeaveGroup(Guid groupId)
         {
             await groupsService.LeaveGroup(groupId);
@@ -106,6 +106,14 @@ namespace SnowrunnerMergerApi.Controllers
         public async Task<IActionResult> DeleteSave(Guid saveId)
         {
             await savesService.RemoveSave(saveId);
+            
+            return NoContent();
+        }
+        
+        [HttpDelete("{groupId:guid}")]
+        public async Task<IActionResult> DeleteGroup(Guid groupId)
+        {
+            await groupsService.RemoveGroup(groupId);
             
             return NoContent();
         }
