@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> opt) : DbContext(opt)
     public DbSet<UserConfirmationToken> UserConfirmationTokens { get; set; }
     public DbSet<StoredSaveInfo> StoredSaves { get; set; }
     public DbSet<SaveGroup> SaveGroups { get; set; }
+    public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -69,5 +70,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> opt) : DbContext(opt)
         modelBuilder.Entity<SaveGroup>()
             .HasMany<User>(g => g.Members)
             .WithMany(u => u.JoinedGroups);
+
+        modelBuilder
+            .Entity<PasswordResetToken>()
+            .HasKey(t => new { t.UserId, t.Token })
+            .HasName("password_reset_token_pkey");
+        
+        modelBuilder
+            .Entity<PasswordResetToken>()
+            .HasOne(t => t.User)
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .HasPrincipalKey(u => u.Id)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

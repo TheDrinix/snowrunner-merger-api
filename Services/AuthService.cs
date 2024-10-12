@@ -6,7 +6,6 @@ using System.Text;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.Net.Http.Headers;
 using NuGet.Protocol;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
@@ -29,6 +28,10 @@ public interface IAuthService
     bool ValidateOauthStateToken(string state);
     Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
     Task<bool> VerifyEmail(Guid userId, string token);
+    Task Logout();
+    Task<UserConfirmationToken?> GenerateConfirmationToken(string email);
+    Task<PasswordResetToken?> GeneratePasswordResetToken(string email);
+    Task ResetPassword(ResetPasswordDto data);
 }
 
 public class AuthService : IAuthService
@@ -81,7 +84,7 @@ public class AuthService : IAuthService
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == normalizedEmail);
         if (user is not null)
         {
-            throw new HttpResponseException(HttpStatusCode.BadRequest, "Email already in use");
+            throw new HttpResponseException(HttpStatusCode.Conflict, "Email already in use");
         }
 
         var salt = new byte[128 / 8];
@@ -104,16 +107,8 @@ public class AuthService : IAuthService
 
         await _dbContext.Users.AddAsync(user);
         // await _dbContext.SaveChangesAsync();
-        
-        var userConfirmationToken = new UserConfirmationToken
-        {
-            UserId = user.Id,
-            Token = GenerateConfirmationToken(),
-            ExpiresAt = DateTime.UtcNow.AddHours(1)
-        };
-        
-        await _dbContext.UserConfirmationTokens.AddAsync(userConfirmationToken);
-        await _dbContext.SaveChangesAsync();
+
+        var userConfirmationToken = await GenerateConfirmationToken(user);
 
         return userConfirmationToken;
     }
@@ -125,7 +120,7 @@ public class AuthService : IAuthService
         
         if (user is null)
         {
-            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid email or password");
+            throw new HttpResponseException(HttpStatusCode.Unauthorized, "Invalid email or password");
         }
         
         if (!user.EmailConfirmed)
@@ -135,7 +130,7 @@ public class AuthService : IAuthService
 
         if (!VerifyPassword(user, data.Password))
         {
-            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid email or password");
+            throw new HttpResponseException(HttpStatusCode.Unauthorized, "Invalid email or password");
         }
 
         var sessionData = await GenerateRefreshToken(user);
@@ -391,6 +386,131 @@ public class AuthService : IAuthService
         return true;
     }
 
+    public async Task Logout()
+    {
+        var refreshToken = _httpContextAccessor.HttpContext?.Request.Cookies["refresh_token"];
+        
+        if (string.IsNullOrEmpty(refreshToken))
+        {
+            return;
+        }
+        
+        var encryptedToken = EncryptRefreshToken(refreshToken);
+        
+        var session = await _dbContext.UserSessions
+            .Include(s => s.User)
+            .FirstOrDefaultAsync(s => s.RefreshToken == encryptedToken);
+        
+        if (session is null)
+        {
+            return;
+        }
+        
+        _dbContext.UserSessions.Remove(session);
+        await _dbContext.SaveChangesAsync();
+        
+        _httpContextAccessor.HttpContext?.Response.Cookies.Delete("refresh_token", new CookieOptions() { SameSite = _sameSiteMode, Secure = true });
+    }
+
+    public async Task<UserConfirmationToken?> GenerateConfirmationToken(string email)
+    {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
+
+        if (user is null || user.EmailConfirmed) return null;
+        
+        return await GenerateConfirmationToken(user);
+    }
+
+    public async Task<PasswordResetToken?> GeneratePasswordResetToken(string email)
+    {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
+
+        if (user is null) return null;
+
+        var tokenBytes = new byte[128];
+
+        using var rng = RandomNumberGenerator.Create();
+
+        string token;
+        do
+        {
+            rng.GetBytes(tokenBytes);
+            token = Convert.ToHexString(tokenBytes);
+        } while (_dbContext.PasswordResetTokens.FirstOrDefault(t => t.Token == token) is not null);
+
+        var passwordResetToken = new PasswordResetToken
+        {
+            User = user,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30),
+            Token = token
+        };
+        
+        _dbContext.PasswordResetTokens.Add(passwordResetToken);
+        await _dbContext.SaveChangesAsync();
+
+        return passwordResetToken;
+    }
+
+    public async Task ResetPassword(ResetPasswordDto data)
+    {
+        var tokenEntry = await _dbContext.PasswordResetTokens
+            .Include(t => t.User)
+            .ThenInclude(u => u.UserSessions)
+            .FirstOrDefaultAsync(t => t.UserId == data.UserId && t.Token == data.Token);
+        
+        if (tokenEntry is null || tokenEntry.ExpiresAt < DateTime.UtcNow)
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        var user = tokenEntry.User;
+        
+        var salt = new byte[128 / 8];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(salt);
+        }
+
+        var userSessions = user.UserSessions;
+        
+        _dbContext.UserSessions.RemoveRange(userSessions);
+        
+        user.PasswordHash = HashPassword(data.Password, salt);
+        user.PasswordSalt = salt;
+        
+        _dbContext.Users.Update(user);
+        
+        _dbContext.PasswordResetTokens.Remove(tokenEntry);
+        await _dbContext.SaveChangesAsync();
+    }
+    
+    private async Task<UserConfirmationToken> GenerateConfirmationToken(User user)
+    {
+        var tokenBytes = new byte[128];
+
+        using var rng = RandomNumberGenerator.Create();
+
+        string token;
+        do
+        {
+            rng.GetBytes(tokenBytes);
+            token = Convert.ToHexString(tokenBytes);
+        } while(_dbContext.UserConfirmationTokens.FirstOrDefault(t => t.Token == token) is not null);
+        
+        
+        var userConfirmationToken = new UserConfirmationToken
+        {
+            UserId = user.Id,
+            Token = Convert.ToHexString(tokenBytes),
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        };
+        
+        _dbContext.UserConfirmationTokens.Add(userConfirmationToken);
+        await _dbContext.SaveChangesAsync();
+
+        return userConfirmationToken;
+    }
+
     private async Task<UserSession> GenerateRefreshToken(User user)
     {
         string token;
@@ -564,16 +684,6 @@ public class AuthService : IAuthService
         }
         
         return errors;
-    }
-
-    private string GenerateConfirmationToken()
-    {
-        var tokenBytes = new byte[128];
-
-        using var rng = RandomNumberGenerator.Create();
-        rng.GetBytes(tokenBytes);
-
-        return Convert.ToHexString(tokenBytes);
     }
 
     private bool VerifyPassword(User user, string password)
