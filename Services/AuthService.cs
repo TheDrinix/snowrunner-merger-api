@@ -73,7 +73,7 @@ public class AuthService : IAuthService
         var passwordErrors = ValidatePassword(data.Password);
         if (passwordErrors.Count > 0)
         {
-            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", passwordErrors);
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", new Dictionary<string, object> {{"password", passwordErrors}});
         }
         
         var normalizedEmail = data.Email.ToUpper();
