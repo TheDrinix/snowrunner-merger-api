@@ -26,17 +26,17 @@ public class SavesService : ISavesService
 
     private readonly ILogger<SavesService> _logger;
     private readonly AppDbContext _dbContext;
-    private readonly IAuthService _authService;
+    private readonly IUserService _userService;
     
     public SavesService(
         ILogger<SavesService> logger,
         AppDbContext dbContext,
-        IAuthService authService
+        IUserService userService
     )
     {
         _logger = logger;
         _dbContext = dbContext;
-        _authService = authService;
+        _userService = userService;
         
         if (!Directory.Exists(StorageDir)) Directory.CreateDirectory(StorageDir);
     }
@@ -44,7 +44,7 @@ public class SavesService : ISavesService
     {
         if (data.Save.ContentType != "application/zip") throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid file type");
         
-        var sessionData = _authService.GetUserSessionData();
+        var sessionData = _userService.GetUserSessionData();
         
         var group = _dbContext.SaveGroups
             .Include(g => g.StoredSaves)
@@ -126,7 +126,7 @@ public class SavesService : ISavesService
     {
         if (data.Save.ContentType != "application/zip") throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid file type");
         
-        var sessionData = _authService.GetUserSessionData();
+        var sessionData = _userService.GetUserSessionData();
         
         var group = _dbContext.SaveGroups
             .Include(g => g.Members)
@@ -258,7 +258,7 @@ public class SavesService : ISavesService
 
     public Task RemoveSave(Guid saveId)
     {
-        var sessionData = _authService.GetUserSessionData();
+        var sessionData = _userService.GetUserSessionData();
         
         var save = _dbContext.StoredSaves
             .Include(s => s.SaveGroup)

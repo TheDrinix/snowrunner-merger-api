@@ -21,8 +21,6 @@ public interface IAuthService
     Task<UserConfirmationToken> Register(RegisterDto data);
     Task<LoginResponseDto> Login(LoginDto data);
     Task<LoginResponseDto> RefreshToken(string token);
-    JwtData GetUserSessionData();
-    Task<User> GetCurrentUser();
     GoogleCredentials GetGoogleCredentials();
     string GenerateOauthStateToken();
     bool ValidateOauthStateToken(string state);
@@ -175,46 +173,6 @@ public class AuthService : IAuthService
             ExpiresIn = AccessTokenLifetime,
             User = session.User
         };
-    }
-
-    public JwtData GetUserSessionData()
-    {
-        var principal = _httpContextAccessor.HttpContext?.User;
-        
-        var id = principal?.FindFirstValue(ClaimTypes.NameIdentifier);
-        var username = principal?.FindFirstValue(ClaimTypes.Name);
-        var email = principal?.FindFirstValue(ClaimTypes.Email);
-        var sessionId = principal?.FindFirstValue(ClaimTypes.PrimarySid);
-        
-        if (id is null || username is null || email is null || sessionId is null)
-        {
-            _logger.LogError("User session data not found");
-            throw new HttpResponseException(HttpStatusCode.Unauthorized);
-        }
-        
-        return new JwtData
-        {
-            Id = Guid.Parse(id),
-            Username = username,
-            Email = email,
-            SessionId = Guid.Parse(sessionId)
-        };
-    }
-
-    public async Task<User> GetCurrentUser()
-    {
-        var userData = GetUserSessionData();
-        
-        var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.Id == userData.Id);
-        
-        if (user is null)
-        {
-            _logger.LogError("User not found");
-            throw new HttpResponseException(HttpStatusCode.Unauthorized);
-        }
-        
-        return user;
     }
     
     public GoogleCredentials GetGoogleCredentials()

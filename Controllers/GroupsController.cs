@@ -12,7 +12,7 @@ namespace SnowrunnerMergerApi.Controllers
     [ApiController]
     [Authorize] 
     public class GroupsController(
-        IAuthService authService, 
+        IUserService userService,
         IGroupsService groupsService,
         ISavesService savesService,
         IMapper mapper) : ControllerBase
@@ -20,7 +20,7 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpGet]
         public async Task<ActionResult<ICollection<GroupDto>>> GetGroups()
         {
-            var sessionData = authService.GetUserSessionData();
+            var sessionData = userService.GetUserSessionData();
 
             var groups = await groupsService.GetUserGroups(sessionData.Id);
             
@@ -30,7 +30,7 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpGet("{groupId:guid}")]
         public async Task<ActionResult<GroupDto>> GetGroup(Guid groupId)
         {
-            var sessionData = authService.GetUserSessionData();
+            var sessionData = userService.GetUserSessionData();
             
             var group = await groupsService.GetGroupData(groupId, sessionData.Id);
             
@@ -42,7 +42,7 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpGet("{groupId:guid}/saves")]
         public async Task<ActionResult<ICollection<StoredSaveInfo>>> GetGroupSaves(Guid groupId)
         {
-            var sessionData = authService.GetUserSessionData();
+            var sessionData = userService.GetUserSessionData();
             
             var group = await groupsService.GetGroupData(groupId, sessionData.Id);
             
@@ -56,7 +56,7 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpPost]
         public async Task<ActionResult<SaveGroup>> CreateGroup([FromBody] CreateGroupDto data)
         {
-            var sessionData = authService.GetUserSessionData();
+            var sessionData = userService.GetUserSessionData();
             
             var group = await groupsService.CreateGroup(data.Name, sessionData.Id);
             
@@ -66,7 +66,7 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpPost("{groupId:guid}/join")]
         public async Task<ActionResult<GroupDto>> JoinGroup(Guid groupId)
         {
-            var sessionData = authService.GetUserSessionData();
+            var sessionData = userService.GetUserSessionData();
             
             var group = await groupsService.JoinGroup(groupId, sessionData.Id);
             

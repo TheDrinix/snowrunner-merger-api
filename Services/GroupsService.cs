@@ -18,10 +18,12 @@ public interface IGroupsService
     Task RemoveGroup(Guid groupId);
 }
 
-public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext, IAuthService authService, ISavesService savesService) : IGroupsService
+public class GroupsService(
+    ILogger<GroupsService> logger, 
+    AppDbContext dbContext,
+    IUserService userService,
+    ISavesService savesService) : IGroupsService
 {
-    private readonly ILogger<GroupsService> _logger = logger;
-
     public async Task<SaveGroup?> GetGroup(Guid groupId)
     {
         return await dbContext.SaveGroups
@@ -84,7 +86,7 @@ public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext
         
         if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
 
-        var user = await authService.GetCurrentUser();
+        var user = await userService.GetCurrentUser();
         
         group.Members.Add(user);
         
@@ -102,7 +104,7 @@ public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext
         
         if (group is null) throw new HttpResponseException(HttpStatusCode.NotFound, "Group not found");
         
-        var user = await authService.GetCurrentUser();
+        var user = await userService.GetCurrentUser();
         
         group.Members.Remove(user);
         
@@ -112,7 +114,7 @@ public class GroupsService(ILogger<GroupsService> logger, AppDbContext dbContext
 
     public async Task RemoveGroup(Guid groupId)
     {
-        var userSession = authService.GetUserSessionData();
+        var userSession = userService.GetUserSessionData();
         
         var group = await GetGroupData(groupId, userSession.Id);
         
