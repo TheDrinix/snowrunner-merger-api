@@ -92,15 +92,6 @@ namespace SnowrunnerMergerApi.Controllers
             return Ok(data);
         }
 
-        /*[HttpGet("me")]
-        [Authorize]
-        public async Task<ActionResult<User>> UserInfo()
-        {
-            var user = await authService.GetCurrentUser();
-             
-            return Ok(user);
-        }*/
-        
         [HttpPost("logout")]
         [Authorize]
         public async Task<IActionResult> Logout()

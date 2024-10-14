@@ -12,11 +12,13 @@ public interface IUserService
     JwtData GetUserSessionData();
     Task<User> GetCurrentUser();
     Task<User> UpdateUsername(string username);
+    Task DeleteUser();
 };
 
 public class UserService(
     IHttpContextAccessor httpContextAccessor,
     ILogger<UserService> logger,
+    AuthService authService,
     AppDbContext dbContext
     ) : IUserService
 {
@@ -71,5 +73,16 @@ public class UserService(
         await dbContext.SaveChangesAsync();
 
         return user;
+    }
+
+    public async Task DeleteUser()
+    {
+        await authService.Logout();
+        
+        var user = await GetCurrentUser();
+        
+        dbContext.Users.Remove(user);
+        
+        await dbContext.SaveChangesAsync();
     }
 }
