@@ -119,7 +119,7 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpPost("request-password-reset")]
-        public async Task<IActionResult> RequestPasswordReset([FromBody] RequestResetPasswordDto body)
+        public async Task<IActionResult> RequestPasswordReset([FromBody] RequestResetPasswordDto body, [FromQuery] string? origin)
         {
             var resetToken = await authService.GeneratePasswordResetToken(body.Email);
             
@@ -128,7 +128,12 @@ namespace SnowrunnerMergerApi.Controllers
                 return NoContent();
             }
             
-            var resetUrl = new Uri($"{Request.Scheme}://{Request.Host}/reset-password?user-id={resetToken.UserId}&token={resetToken.Token}");
+            if (string.IsNullOrEmpty(origin)) 
+            {
+                origin = Request.Headers.Origin;
+            }
+            
+            var resetUrl = new Uri($"{origin}/reset-password?user-id={resetToken.UserId}&token={resetToken.Token}");
 
             var html = $"""
                             <html>

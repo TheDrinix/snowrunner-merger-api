@@ -18,7 +18,7 @@ public interface IUserService
 public class UserService(
     IHttpContextAccessor httpContextAccessor,
     ILogger<UserService> logger,
-    AuthService authService,
+    IAuthService authService,
     AppDbContext dbContext
     ) : IUserService
 {
