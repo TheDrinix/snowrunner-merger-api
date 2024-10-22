@@ -23,9 +23,9 @@ namespace SnowrunnerMergerApi.Controllers
         {
             var confirmationToken = await authService.Register(data);
             
-            var confirmationUrl = new Uri($"{Request.Scheme}://{Request.Host}/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
+            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
             
-            // await emailSender.SendEmailAsync(data.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
+            await emailSender.SendEmailAsync(data.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
 
             return Created();
         }
@@ -111,7 +111,7 @@ namespace SnowrunnerMergerApi.Controllers
                 return NoContent();
             }
             
-            var confirmationUrl = new Uri($"{Request.Scheme}://{Request.Host}/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
+            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
             
             await emailSender.SendEmailAsync(body.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
             
@@ -133,7 +133,7 @@ namespace SnowrunnerMergerApi.Controllers
                 origin = Request.Headers.Origin;
             }
             
-            var resetUrl = new Uri($"{origin}/reset-password?user-id={resetToken.UserId}&token={resetToken.Token}");
+            var resetUrl = new Uri($"{origin}/auth/reset-password?user-id={resetToken.UserId}&token={resetToken.Token}");
 
             var html = $"""
                             <html>
