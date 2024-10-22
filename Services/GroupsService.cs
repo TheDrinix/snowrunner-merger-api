@@ -63,7 +63,7 @@ public class GroupsService(
 
         if (user is null) throw new HttpResponseException(HttpStatusCode.Unauthorized);
         
-        if (user.OwnedGroups.Count >= 4) throw new HttpResponseException(HttpStatusCode.BadRequest, "User already owns 4 groups");
+        if (user.OwnedGroups.Count >= 4) throw new HttpResponseException(HttpStatusCode.Forbidden, "User already owns 4 groups");
         
         var group = new SaveGroup()
         {

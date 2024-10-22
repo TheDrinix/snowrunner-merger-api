@@ -123,7 +123,7 @@ public class AuthService : IAuthService
         
         if (!user.EmailConfirmed)
         {
-            throw new HttpResponseException(HttpStatusCode.BadRequest, "Email not confirmed");
+            throw new HttpResponseException(HttpStatusCode.Forbidden, "Email not confirmed");
         }
 
         if (!VerifyPassword(user, data.Password))
@@ -346,26 +346,18 @@ public class AuthService : IAuthService
 
     public async Task Logout()
     {
-        var refreshToken = _httpContextAccessor.HttpContext?.Request.Cookies["refresh_token"];
-        
-        if (string.IsNullOrEmpty(refreshToken))
-        {
-            return;
-        }
-        
-        var encryptedToken = EncryptRefreshToken(refreshToken);
+        var principal = _httpContextAccessor.HttpContext?.User;
+        var sessionId = principal.FindFirstValue(ClaimTypes.PrimarySid) ?? "";
         
         var session = await _dbContext.UserSessions
             .Include(s => s.User)
-            .FirstOrDefaultAsync(s => s.RefreshToken == encryptedToken);
+            .FirstOrDefaultAsync(s => s.Id == Guid.Parse(sessionId));
         
-        if (session is null)
+        if (session is not null)
         {
-            return;
+            _dbContext.UserSessions.Remove(session);
+            await _dbContext.SaveChangesAsync();
         }
-        
-        _dbContext.UserSessions.Remove(session);
-        await _dbContext.SaveChangesAsync();
         
         _httpContextAccessor.HttpContext?.Response.Cookies.Delete("refresh_token", new CookieOptions() { SameSite = _sameSiteMode, Secure = true });
     }
