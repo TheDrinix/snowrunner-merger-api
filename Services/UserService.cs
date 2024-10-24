@@ -4,17 +4,13 @@ using Microsoft.EntityFrameworkCore;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
+using SnowrunnerMergerApi.Services.Interfaces;
 
 namespace SnowrunnerMergerApi.Services;
 
-public interface IUserService
-{
-    JwtData GetUserSessionData();
-    Task<User> GetCurrentUser();
-    Task<User> UpdateUsername(string username);
-    Task DeleteUser();
-};
-
+/// <summary>
+/// Service for managing user-related operations.
+/// </summary>
 public class UserService(
     IHttpContextAccessor httpContextAccessor,
     ILogger<UserService> logger,
@@ -22,7 +18,11 @@ public class UserService(
     AppDbContext dbContext
     ) : IUserService
 {
-    
+    /// <summary>
+    /// Retrieves the current user's session data from the JWT.
+    /// </summary>
+    /// <returns>JwtData containing user session information.</returns>
+    /// <exception cref="HttpResponseException">Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) when user session data is not found.</exception>
     public JwtData GetUserSessionData()
     {
         var principal = httpContextAccessor.HttpContext?.User;
@@ -47,6 +47,11 @@ public class UserService(
         };
     }
 
+    /// <summary>
+    /// Retrieves the current user from the database.
+    /// </summary>
+    /// <returns>The current user.</returns>
+    /// <exception cref="HttpResponseException">Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) when the user session data is not found.</exception>
     public async Task<User> GetCurrentUser()
     {
         var userData = GetUserSessionData();
@@ -63,6 +68,11 @@ public class UserService(
         return user;
     }
 
+    /// <summary>
+    /// Updates the username of the current user.
+    /// </summary>
+    /// <param name="username">The new username.</param>
+    /// <returns>The updated user.</returns>
     public async Task<User> UpdateUsername(string username)
     {
         var user = await GetCurrentUser();
@@ -75,6 +85,10 @@ public class UserService(
         return user;
     }
 
+    /// <summary>
+    /// Deletes the current user from the database.
+    /// </summary>
+    /// <returns>A task representing the asynchronous operation.</returns>
     public async Task DeleteUser()
     {
         await authService.Logout();

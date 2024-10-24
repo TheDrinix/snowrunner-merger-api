@@ -4,6 +4,7 @@ using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Extensions;
 using SnowrunnerMergerApi.Models;
 using SnowrunnerMergerApi.Services;
+using SnowrunnerMergerApi.Services.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,7 +34,7 @@ builder.Services.AddCors(opt =>
 {
     opt.AddPolicy("dev", policy =>
     {
-        policy.WithOrigins("https://localhost:44303", "http://localhost:5173");
+        policy.WithOrigins("https://localhost:44303", "http://localhost:5173", "https://localhost:5051");
         policy.AllowAnyHeader();
         policy.AllowAnyMethod();
         policy.AllowCredentials();

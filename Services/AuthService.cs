@@ -12,26 +12,10 @@ using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Models.Auth.Google;
+using SnowrunnerMergerApi.Services.Interfaces;
 using SameSiteMode = Microsoft.AspNetCore.Http.SameSiteMode;
 
 namespace SnowrunnerMergerApi.Services;
-
-public interface IAuthService
-{
-    Task<UserConfirmationToken> Register(RegisterDto data);
-    Task<LoginResponseDto> Login(LoginDto data);
-    Task<LoginResponseDto> RefreshToken(string token);
-    GoogleCredentials GetGoogleCredentials();
-    string GenerateOauthStateToken();
-    bool ValidateOauthStateToken(string state);
-    Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
-    Task<bool> VerifyEmail(Guid userId, string token);
-    Task Logout();
-    Task<UserConfirmationToken?> GenerateConfirmationToken(string email);
-    Task<PasswordResetToken?> GeneratePasswordResetToken(string email);
-    Task ResetPassword(ResetPasswordDto data);
-}
-
 public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
@@ -68,6 +52,22 @@ public class AuthService : IAuthService
         }
     }
 
+    /// <summary>
+    /// Registers a new user using the provided data.
+    /// </summary>
+    /// <param name="data">A <see cref="RegisterDto"/> object containing the user's registration details.</param>
+    /// <returns>A <see cref="UserConfirmationToken"/> object containing the confirmation token for the user.</returns>
+    /// <exception cref="HttpResponseException">
+    /// Thrown with different HTTP status codes depending on the validation failure:
+    /// <list type="bullet">
+    ///     <item>
+    ///         HttpStatusCode.BadRequest (400): If the password does not meet the validation criteria.
+    ///     </item>
+    ///     <item>
+    ///         HttpStatusCode.Conflict (409): If the email is already in use.
+    ///     </item>
+    /// </list>
+    /// </exception>
     public async Task<UserConfirmationToken> Register(RegisterDto data)
     {
         var passwordErrors = ValidatePassword(data.Password);
@@ -111,6 +111,30 @@ public class AuthService : IAuthService
         return userConfirmationToken;
     }
     
+    /// <summary>
+    /// Attempts to log in a user with the provided credentials.
+    /// </summary>
+    /// <param name="data">A <see cref="LoginDto"/> object containing the user's email and password.</param>
+    /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
+    /// <exception cref="HttpResponseException">
+    /// Thrown with different HTTP status codes depending on the validation failure:
+    /// <list type="bullet">
+    ///     <item>
+    ///         HttpStatusCode.Unauthorized (401):
+    ///         <list type="bullet">
+    ///             <item>
+    ///                 If the user email is not found in the database.
+    ///             </item>
+    ///             <item>
+    ///                 If the provided password is incorrect.
+    ///             </item>
+    ///         </list>
+    ///     </item>
+    ///     <item>
+    ///         HttpStatusCode.Forbidden (403): If the user's email is not confirmed.
+    ///     </item>
+    /// </list>
+    /// </exception>
     public async Task<LoginResponseDto> Login(LoginDto data)
     {
         var user = await _dbContext.Users
@@ -120,15 +144,15 @@ public class AuthService : IAuthService
         {
             throw new HttpResponseException(HttpStatusCode.Unauthorized, "Invalid email or password");
         }
-        
-        if (!user.EmailConfirmed)
-        {
-            throw new HttpResponseException(HttpStatusCode.Forbidden, "Email not confirmed");
-        }
 
         if (!VerifyPassword(user, data.Password))
         {
             throw new HttpResponseException(HttpStatusCode.Unauthorized, "Invalid email or password");
+        }
+        
+        if (!user.EmailConfirmed)
+        {
+            throw new HttpResponseException(HttpStatusCode.Forbidden, "Email not confirmed");
         }
 
         var sessionData = await GenerateRefreshToken(user);
@@ -149,6 +173,14 @@ public class AuthService : IAuthService
         };
     }
     
+    /// <summary>
+    ///  Attempts to refresh the access token using the provided refresh token.
+    /// </summary>
+    /// <param name="refreshToken">The refresh token used to generate a new access token.</param>
+    /// <returns>A <see cref="LoginResponseDto"/> object containing the new access token, expiration time, and user information on success.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the refresh token is invalid.
+    /// </exception>
     public async Task<LoginResponseDto> RefreshToken(string refreshToken)
     {
         var session = await ValidateRefreshToken(refreshToken);
@@ -175,6 +207,10 @@ public class AuthService : IAuthService
         };
     }
     
+    /// <summary>
+    ///     Retrieves the Google OAuth2 credentials from the configuration.
+    /// </summary>
+    /// <returns>A <see cref="GoogleCredentials"/> object containing the Google OAuth2 client ID and secret.</returns>
     public GoogleCredentials GetGoogleCredentials()
     {
         var googleCredentials = _config.GetSection("Authentication:Google").Get<GoogleCredentials>();
@@ -188,12 +224,21 @@ public class AuthService : IAuthService
         return googleCredentials;
     }
 
+    /// <summary>
+    ///     Attempts to sign in a user using the provided Google OAuth2 code.
+    ///     If the user does not exist, a new user is created.
+    /// </summary>
+    /// <param name="code">The Google OAuth2 code used to exchange for an access token.</param>
+    /// <param name="redirectUri">The redirect URI used to exchange the code.</param>
+    /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.BadRequest (400) if the access token or user data is invalid.
+    /// </exception>
     public async Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri)
     {
         var credentials = GetGoogleCredentials();
         
         // Send http request to exchange code for token
-        
         var url = new UriBuilder("https://oauth2.googleapis.com/token")
         .ToString();
         
@@ -241,6 +286,13 @@ public class AuthService : IAuthService
             _dbContext.Users.Add(user);
             await _dbContext.SaveChangesAsync();
         }
+        
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            _dbContext.Users.Update(user);
+            await _dbContext.SaveChangesAsync();
+        }
 
         var sessionData = await GenerateRefreshToken(user);
         
@@ -260,6 +312,10 @@ public class AuthService : IAuthService
         };
     }
 
+    /// <summary>
+    ///     Generates a new OAuth2 state token and stores it in a cookie.
+    /// </summary>
+    /// <returns>The hashed OAuth2 state token.</returns>
     public string GenerateOauthStateToken()
     {
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -277,7 +333,15 @@ public class AuthService : IAuthService
 
         return hashedToken;
     }
-    
+
+    /// <summary>
+    ///     Validates the OAuth2 state token against the stored cookie.
+    /// </summary>
+    /// <param name="state">The OAuth2 state token to validate.</param>
+    /// <returns>True if the token is valid, false otherwise.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the state token is invalid.
+    /// </exception>
     public bool ValidateOauthStateToken(string state)
     {
         var cookie = _httpContextAccessor.HttpContext?.Request.Cookies["oauth_state"];
@@ -295,6 +359,12 @@ public class AuthService : IAuthService
         return state == token;
     }
 
+    /// <summary>
+    ///     Verifies the email of a user using the provided confirmation token.
+    /// </summary>
+    /// <param name="userId">The ID of the user whose email is being verified.</param>
+    /// <param name="token">The confirmation token used to verify the email.</param>
+    /// <returns>True if the email was successfully verified, false otherwise.</returns>
     public async Task<bool> VerifyEmail(Guid userId, string token)
     {
         var confirmationToken = await _dbContext.UserConfirmationTokens
@@ -317,6 +387,13 @@ public class AuthService : IAuthService
         return true;
     }
 
+    /// <summary>
+    ///     Revokes a user session using the provided session ID and password.
+    /// </summary>
+    /// <param name="userId">The ID of the user whose session is being revoked.</param>
+    /// <param name="sessionId">The ID of the session being revoked.</param>
+    /// <param name="password">The user's password used to verify the session.</param>
+    /// <returns>True if the session was successfully revoked, false otherwise.</returns>
     public async Task<bool> RevokeSession(Guid userId, Guid sessionId, string password)
     {
         var session = await _dbContext.UserSessions
@@ -344,6 +421,9 @@ public class AuthService : IAuthService
         return true;
     }
 
+    /// <summary>
+    ///     Logs out the current user by removing the session from the database and deleting the refresh token cookie.
+    /// </summary>
     public async Task Logout()
     {
         var principal = _httpContextAccessor.HttpContext?.User;
@@ -362,6 +442,11 @@ public class AuthService : IAuthService
         _httpContextAccessor.HttpContext?.Response.Cookies.Delete("refresh_token", new CookieOptions() { SameSite = _sameSiteMode, Secure = true });
     }
 
+    /// <summary>
+    ///     Generates a confirmation token for the user with the provided email.
+    /// </summary>
+    /// <param name="email">The email of the user to generate the confirmation token for.</param>
+    /// <returns>A <see cref="UserConfirmationToken"/> object containing the confirmation token on success, null otherwise.</returns>
     public async Task<UserConfirmationToken?> GenerateConfirmationToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
@@ -371,6 +456,11 @@ public class AuthService : IAuthService
         return await GenerateConfirmationToken(user);
     }
 
+    /// <summary>
+    ///     Generates a password reset token for the user with the provided email.
+    /// </summary>
+    /// <param name="email">The email of the user to generate the password reset token for.</param>
+    /// <returns>A <see cref="PasswordResetToken"/> object containing the password reset token on success, null otherwise.</returns>
     public async Task<PasswordResetToken?> GeneratePasswordResetToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
@@ -401,6 +491,13 @@ public class AuthService : IAuthService
         return passwordResetToken;
     }
 
+    /// <summary>
+    ///     Resets the password of a user using the provided data.
+    /// </summary>
+    /// <param name="data">A <see cref="ResetPasswordDto"/> object containing the user's ID, token, and new password.</param>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the token is invalid or expired.
+    /// </exception>
     public async Task ResetPassword(ResetPasswordDto data)
     {
         var tokenEntry = await _dbContext.PasswordResetTokens
@@ -434,6 +531,15 @@ public class AuthService : IAuthService
         await _dbContext.SaveChangesAsync();
     }
     
+    /// <summary>
+    /// Generates a confirmation token for the specified user.
+    /// </summary>
+    /// <param name="user">The user for whom the confirmation token is generated.</param>
+    /// <returns>A <see cref="UserConfirmationToken"/> object containing the generated token.</returns>
+    /// <remarks>
+    /// This method generates a unique confirmation token for the user and stores it in the database.
+    /// The token is valid for 1 hour from the time of generation.
+    /// </remarks>
     private async Task<UserConfirmationToken> GenerateConfirmationToken(User user)
     {
         var tokenBytes = new byte[128];
@@ -461,6 +567,11 @@ public class AuthService : IAuthService
         return userConfirmationToken;
     }
 
+    /// <summary>
+    ///     Generates a refresh token for the specified user.
+    /// </summary>
+    /// <param name="user">The user for whom the refresh token is generated.</param>
+    /// <returns>A <see cref="UserSession"/> object containing the generated refresh token.</returns>
     private async Task<UserSession> GenerateRefreshToken(User user)
     {
         string token;
@@ -503,6 +614,11 @@ public class AuthService : IAuthService
         return session;
     }
 
+    /// <summary>
+    ///     Validates the refresh token and generates a new one if it is valid.
+    /// </summary>
+    /// <param name="token">The refresh token to validate.</param>
+    /// <returns>A <see cref="UserSession"/> object containing the user session data if the token is valid, null otherwise.</returns>
     private async Task<UserSession?> ValidateRefreshToken(string token)
     {
         var encryptedToken = EncryptRefreshToken(token);
@@ -567,6 +683,12 @@ public class AuthService : IAuthService
         return encryptedToken;
     }
 
+    /// <summary>
+    ///     Hashes the provided password using the provided salt.
+    /// </summary>
+    /// <param name="password">The password to hash.</param>
+    /// <param name="salt">The salt to use for hashing.</param>
+    /// <returns>The hashed password.</returns>
     private byte[] HashPassword(string password, byte[] salt)
     {
         return KeyDerivation.Pbkdf2(
@@ -578,6 +700,12 @@ public class AuthService : IAuthService
         );
     }
 
+    /// <summary>
+    ///     Generates a JWT token using the provided data.
+    /// </summary>
+    /// <param name="data">A <see cref="JwtData"/> object containing data to include in the JWT token.</param>
+    /// <returns>The generated JWT token.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if the JWT secret is not found in the configuration.</exception>
     private string GenerateJwt(JwtData data)
     {
         var claims = new List<Claim>()
@@ -595,7 +723,7 @@ public class AuthService : IAuthService
             throw new ArgumentNullException(nameof(secret));
         }
 
-        var key = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(secret));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
@@ -609,6 +737,11 @@ public class AuthService : IAuthService
         return tokenString;
     }
     
+    /// <summary>
+    ///     Validates the provided password against the validation criteria.
+    /// </summary>
+    /// <param name="password">The password to validate.</param>
+    /// <returns>A list of error messages if the password is invalid, an empty list otherwise.</returns>
     private List<string> ValidatePassword(string password)
     {
         var errors = new List<string>();
@@ -635,7 +768,13 @@ public class AuthService : IAuthService
         
         return errors;
     }
-
+    
+    /// <summary>
+    ///     Verifies the provided password against the user's password hash.
+    /// </summary>
+    /// <param name="user">The user to verify the password against.</param>
+    /// <param name="password">The password to verify.</param>
+    /// <returns>True if the password is correct, false otherwise.</returns>
     private bool VerifyPassword(User user, string password)
     {
         var enteredPasswordHash = HashPassword(password, user.PasswordSalt);

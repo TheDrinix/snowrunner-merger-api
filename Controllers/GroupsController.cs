@@ -5,6 +5,7 @@ using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Models.Saves;
 using SnowrunnerMergerApi.Models.Saves.Dtos;
 using SnowrunnerMergerApi.Services;
+using SnowrunnerMergerApi.Services.Interfaces;
 
 namespace SnowrunnerMergerApi.Controllers
 {

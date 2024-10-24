@@ -4,6 +4,7 @@ using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Saves;
+using SnowrunnerMergerApi.Services.Interfaces;
 
 namespace SnowrunnerMergerApi.Services;
 

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Services;
+using SnowrunnerMergerApi.Services.Interfaces;
 
 namespace SnowrunnerMergerApi.Controllers
 {
