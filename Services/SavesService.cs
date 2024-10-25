@@ -11,14 +11,6 @@ using SnowrunnerMergerApi.Services.Interfaces;
 
 namespace SnowrunnerMergerApi.Services;
 
-public interface ISavesService
-{
-    Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data, int saveSlot);
-    Task<string> MergeSaves(Guid groupId, MergeSavesDto data, int storedSaveNumber);
-    Task RemoveSave(Guid saveId);
-    Task RemoveSave(StoredSaveInfo save);
-}
-
 public class SavesService : ISavesService
 {
     private static readonly string StorageDir = Path.Join("storage", "saves");
