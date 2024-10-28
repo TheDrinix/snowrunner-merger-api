@@ -76,5 +76,13 @@ public interface IAuthService
     /// </summary>
     /// <param name="data">A <see cref="ResetPasswordDto"/> object containing the user's ID, token, and new password.</param>
     Task ResetPassword(ResetPasswordDto data);
+
+    /// <summary>
+    ///     Updates the password of the user.
+    /// </summary>
+    /// <param name="user">The user whose password is being updated.</param>
+    /// <param name="data">A <see cref="UpdatePasswordDto"/> object containing the user's current password and new password.</param>
+    /// <returns>The updated user.</returns>
+    Task<User> UpdatePassword(User user, UpdatePasswordDto data);
 }
 

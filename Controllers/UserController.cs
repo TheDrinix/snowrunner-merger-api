@@ -21,7 +21,15 @@ namespace SnowrunnerMergerApi.Controllers
             return Ok(user);
         }
 
-        [HttpPatch]
+        [HttpPatch("password")]
+        public async Task<ActionResult<User>> UpdatePassword(UpdatePasswordDto data)
+        {
+            var updatedUser = await userService.UpdatePassword(data);
+
+            return Ok(updatedUser);
+        }
+        
+        [HttpPatch("username")]
         public async Task<ActionResult<User>> UpdateUsername(UpdateUsernameDto data)
         {
             var updatedUser = await userService.UpdateUsername(data.Username);

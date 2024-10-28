@@ -1,5 +1,6 @@
 using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
+using SnowrunnerMergerApi.Models.Auth.Dtos;
 
 namespace SnowrunnerMergerApi.Services.Interfaces;
 
@@ -21,6 +22,12 @@ public interface IUserService
     /// <param name="username">The new username.</param>
     /// <returns>The updated user.</returns>
     Task<User> UpdateUsername(string username);
+    /// <summary>
+    ///     Updates the password of the current user.
+    /// </summary>
+    /// <param name="data">A <see cref="UpdatePasswordDto"/> object containing the user's current password and new password.</param>
+    /// <returns>The updated user.</returns>
+    Task<User> UpdatePassword(UpdatePasswordDto data);
     /// <summary>
     /// Deletes the current user from the database.
     /// </summary>

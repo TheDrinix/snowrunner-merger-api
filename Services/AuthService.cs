@@ -532,6 +532,49 @@ public class AuthService : IAuthService
     }
     
     /// <summary>
+    ///     Updates the password of the user.
+    /// </summary>
+    /// <param name="user">The user whose password is being updated.</param>
+    /// <param name="data">A <see cref="UpdatePasswordDto"/> object containing the user's current password and new password.</param>
+    /// <returns>The updated user.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with different HTTP status codes depending on the validation failure:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             HttpStatusCode.Unauthorized (401): If the current password is invalid.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.BadRequest (400): If the new password does not meet the validation criteria.
+    ///         </item>
+    ///     </list>
+    /// </exception>
+    public async Task<User> UpdatePassword(User user, UpdatePasswordDto data)
+    {
+        if (!VerifyPassword(user, data.CurrentPassword))
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized, "Invalid password");
+        }
+        
+        var errors = ValidatePassword(data.NewPassword);
+        if (errors.Count > 0)
+        {
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", new Dictionary<string, object> {{"password", errors}});
+        }
+        
+        var salt = new byte[128 / 8];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(salt);
+        
+        user.PasswordHash = HashPassword(data.NewPassword, salt);
+        user.PasswordSalt = salt;
+        
+        _dbContext.Users.Update(user);
+        await _dbContext.SaveChangesAsync();
+        
+        return user;
+    }
+    
+    /// <summary>
     /// Generates a confirmation token for the specified user.
     /// </summary>
     /// <param name="user">The user for whom the confirmation token is generated.</param>

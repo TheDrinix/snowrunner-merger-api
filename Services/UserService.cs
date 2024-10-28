@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
+using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Services.Interfaces;
 
 namespace SnowrunnerMergerApi.Services;
@@ -81,6 +82,20 @@ public class UserService(
         
         dbContext.Update(user);
         await dbContext.SaveChangesAsync();
+
+        return user;
+    }
+
+    /// <summary>
+    ///     Updates the password of the current user.
+    /// </summary>
+    /// <param name="data">A <see cref="UpdatePasswordDto"/> object containing the user's current password and new password.</param>
+    /// <returns>The updated user.</returns>
+    public async Task<User> UpdatePassword(UpdatePasswordDto data)
+    {
+        var user = await GetCurrentUser();
+
+        user = await authService.UpdatePassword(user, data);
 
         return user;
     }
