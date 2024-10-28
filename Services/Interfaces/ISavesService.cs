@@ -1,7 +1,7 @@
 using SnowrunnerMergerApi.Models.Saves;
 using SnowrunnerMergerApi.Models.Saves.Dtos;
 
-namespace SnowrunnerMergerApi.Services;
+namespace SnowrunnerMergerApi.Services.Interfaces;
 
 public interface ISavesService
 {

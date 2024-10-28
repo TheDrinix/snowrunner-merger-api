@@ -11,51 +11,18 @@ public interface IAuthService
     /// </summary>
     /// <param name="data">A <see cref="RegisterDto"/> object containing the user's registration details.</param>
     /// <returns>A <see cref="UserConfirmationToken"/> object containing the confirmation token for the user.</returns>
-    /// <exception cref="HttpResponseException">
-    /// Thrown with different HTTP status codes depending on the validation failure:
-    /// <list type="bullet">
-    ///     <item>
-    ///         HttpStatusCode.BadRequest (400): If the password does not meet the validation criteria.
-    ///     </item>
-    ///     <item>
-    ///         HttpStatusCode.Conflict (409): If the email is already in use.
-    ///     </item>
-    /// </list>
-    /// </exception>
     Task<UserConfirmationToken> Register(RegisterDto data);
     /// <summary>
     /// Attempts to log in a user with the provided credentials.
     /// </summary>
     /// <param name="data">A <see cref="LoginDto"/> object containing the user's email and password.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
-    /// <exception cref="HttpResponseException">
-    /// Thrown with different HTTP status codes depending on the validation failure:
-    /// <list type="bullet">
-    ///     <item>
-    ///         HttpStatusCode.Unauthorized (401):
-    ///         <list type="bullet">
-    ///             <item>
-    ///                 If the user email is not found in the database.
-    ///             </item>
-    ///             <item>
-    ///                 If the provided password is incorrect.
-    ///             </item>
-    ///         </list>
-    ///     </item>
-    ///     <item>
-    ///         HttpStatusCode.Forbidden (403): If the user's email is not confirmed.
-    ///     </item>
-    /// </list>
-    /// </exception>
     Task<LoginResponseDto> Login(LoginDto data);
     /// <summary>
     ///  Attempts to refresh the access token using the provided refresh token.
     /// </summary>
     /// <param name="refreshToken">The refresh token used to generate a new access token.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the new access token, expiration time, and user information on success.</returns>
-    /// <exception cref="HttpResponseException">
-    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the refresh token is invalid.
-    /// </exception>
     Task<LoginResponseDto> RefreshToken(string token);
     /// <summary>
     ///     Retrieves the Google OAuth2 credentials from the configuration.
@@ -72,9 +39,6 @@ public interface IAuthService
     /// </summary>
     /// <param name="state">The OAuth2 state token to validate.</param>
     /// <returns>True if the token is valid, false otherwise.</returns>
-    /// <exception cref="HttpResponseException">
-    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the state token is invalid.
-    /// </exception>
     bool ValidateOauthStateToken(string state);
     /// <summary>
     ///     Attempts to sign in a user using the provided Google OAuth2 code.
@@ -83,9 +47,6 @@ public interface IAuthService
     /// <param name="code">The Google OAuth2 code used to exchange for an access token.</param>
     /// <param name="redirectUri">The redirect URI used to exchange the code.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
-    /// <exception cref="HttpResponseException">
-    ///     Thrown with an HTTP status code of HttpStatusCode.BadRequest (400) if the access token or user data is invalid.
-    /// </exception>
     Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
     /// <summary>
     ///     Verifies the email of a user using the provided confirmation token.
@@ -114,9 +75,6 @@ public interface IAuthService
     ///     Resets the password of a user using the provided data.
     /// </summary>
     /// <param name="data">A <see cref="ResetPasswordDto"/> object containing the user's ID, token, and new password.</param>
-    /// <exception cref="HttpResponseException">
-    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the token is invalid or expired.
-    /// </exception>
     Task ResetPassword(ResetPasswordDto data);
 }
 
