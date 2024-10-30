@@ -134,6 +134,8 @@ public class SavesService : ISavesService
             .OrderByDescending(s => s.UploadedAt)
             .ToList();
         
+        if (saves.Count == 0) throw new HttpResponseException(HttpStatusCode.BadRequest, "No group saves found");
+        
         if (saves.Count < storedSaveNumber) storedSaveNumber = saves.Count - 1;
         
         if (storedSaveNumber < 0) throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid save number");
@@ -208,7 +210,7 @@ public class SavesService : ISavesService
             File.Delete(uploadedSaveFilePath);
         }
         
-        var storedSave = LoadSave(storedSaveDirectory, storedSaveNumber);
+        var storedSave = LoadSave(storedSaveDirectory, storedSaveData.SaveNumber);
         
         if (uploadedSave is null || storedSave is null)
         {
