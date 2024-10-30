@@ -552,13 +552,13 @@ public class AuthService : IAuthService
     {
         if (!VerifyPassword(user, data.CurrentPassword))
         {
-            throw new HttpResponseException(HttpStatusCode.Unauthorized, "Invalid password");
+            throw new HttpResponseException(HttpStatusCode.Unauthorized, "Current password is invalid");
         }
         
         var errors = ValidatePassword(data.NewPassword);
         if (errors.Count > 0)
         {
-            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", new Dictionary<string, object> {{"password", errors}});
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "New password is invalid", new Dictionary<string, object> {{"password", errors}});
         }
         
         var salt = new byte[128 / 8];
