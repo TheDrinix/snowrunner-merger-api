@@ -79,6 +79,7 @@ public class UserService(
         var user = await GetCurrentUser();
         
         user.Username = username;
+        user.NormalizedUsername = username.ToUpper();
         
         dbContext.Update(user);
         await dbContext.SaveChangesAsync();
