@@ -34,7 +34,7 @@ public class EmailSender : IEmailSender
         }
 
         using var client = new SmtpClient();
-        
+
         client.Port = mailConfig.Port;
         client.Host = mailConfig.Host;
         client.EnableSsl = true;

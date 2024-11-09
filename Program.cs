@@ -39,6 +39,14 @@ builder.Services.AddCors(opt =>
         policy.AllowAnyMethod();
         policy.AllowCredentials();
     });
+    
+    opt.AddPolicy("prod", policy =>
+    {
+        policy.WithOrigins("https://snowrunner.drinix.xyz");
+        policy.AllowAnyHeader();
+        policy.AllowAnyMethod();
+        policy.AllowCredentials();
+    });
 });
 
 builder.Services.SetupAuthentication(builder.Configuration);
@@ -62,11 +70,14 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseCors("dev");
+}
+else
+{
+    app.UseCors("prod");
 }
 
 app.UseHttpsRedirection();
-
-app.UseCors("dev");
 
 app.UseAuthentication();
 app.UseAuthorization();
