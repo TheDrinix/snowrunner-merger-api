@@ -5,11 +5,11 @@ namespace SnowrunnerMergerApi.Models.Saves.Dtos;
 public record MergeSavesDto
 {
     [Required]
-    public IFormFile Save { get; set; }
-    [Range(1, 4)]
+    public IFormFile Save { get; init; }
+    [Range(0, 3)]
     [Required]
-    public int SaveNumber { get; set; }
-    [Range(1, 4)]
+    public int SaveNumber { get; init; }
+    [Range(0, 3)]
     [Required]
-    public int OutputSaveNumber { get; set; }
+    public int OutputSaveNumber { get; init; }
 };
