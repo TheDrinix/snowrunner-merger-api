@@ -48,6 +48,12 @@ public interface IAuthService
     /// <param name="redirectUri">The redirect URI used to exchange the code.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
+
+    /// <summary>
+    ///     Retrieves the Google OAuth2 callback URL from the configuration.
+    /// </summary>
+    /// <returns>The Google OAuth2 callback URL.</returns>
+    public string GetGoogleCallbackUrl();
     /// <summary>
     ///     Verifies the email of a user using the provided confirmation token.
     /// </summary>

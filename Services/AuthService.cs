@@ -313,6 +313,28 @@ public class AuthService : IAuthService
     }
 
     /// <summary>
+    ///     Retrieves the Google OAuth2 callback URL from the configuration.
+    /// </summary>
+    /// <returns>The Google OAuth2 callback URL.</returns>
+    public string GetGoogleCallbackUrl()
+    {
+        var credentials = GetGoogleCredentials();
+        
+        if (credentials.RedirectUrl is not null) return credentials.RedirectUrl;
+        
+        var request = _httpContextAccessor.HttpContext?.Request;
+        
+        if (request is null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        
+        var baseUrl = $"{request.Scheme}://{request.Host}";
+        
+        return $"{baseUrl}/auth/google/callback";
+    }
+
+    /// <summary>
     ///     Generates a new OAuth2 state token and stores it in a cookie.
     /// </summary>
     /// <returns>The hashed OAuth2 state token.</returns>

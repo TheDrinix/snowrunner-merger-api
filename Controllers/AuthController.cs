@@ -57,16 +57,14 @@ namespace SnowrunnerMergerApi.Controllers
             var credentials = authService.GetGoogleCredentials();
             
             var hashedState = authService.GenerateOauthStateToken();
-            
-            // var redirectUrl = Url.Action(nameof(GoogleSigninCallback), "Auth", null, Request.Scheme);
-            // var redirectUrl = $"{Request.Scheme}://{Request.Host}/auth/google/callback";
-            var redirectUrl = "http://localhost:5173/auth/google/callback";
+
+            var redirectUrl = authService.GetGoogleCallbackUrl();
             
             var scopes = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
             
             var url = new UriBuilder("https://accounts.google.com/o/oauth2/v2/auth")
             {
-                Query = $"client_id={credentials.ClientId}&response_type=code&redirect_uri={redirectUrl.ToLower()}&scope={scopes}&include_granted_scopes=true&prompt=consent&state={hashedState}"
+                Query = $"client_id={credentials.ClientId}&response_type=code&redirect_uri={redirectUrl}&scope={scopes}&include_granted_scopes=true&prompt=consent&state={hashedState}"
             }.ToString();
             
             return Ok(url);
@@ -84,11 +82,10 @@ namespace SnowrunnerMergerApi.Controllers
             {
                 return BadRequest();
             }
-            
-            // var redirectUrl = Url.Action(nameof(GoogleSigninCallback), "Auth", null, Request.Scheme);
-            var redirectUrl = "http://localhost:5173/auth/google/callback";
 
-            var data = await authService.GoogleSignIn(code, redirectUrl.ToLower());
+            var redirectUrl = authService.GetGoogleCallbackUrl();
+
+            var data = await authService.GoogleSignIn(code, redirectUrl);
 
             return Ok(data);
         }
