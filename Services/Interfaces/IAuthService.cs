@@ -10,8 +10,8 @@ public interface IAuthService
     /// Registers a new user using the provided data.
     /// </summary>
     /// <param name="data">A <see cref="RegisterDto"/> object containing the user's registration details.</param>
-    /// <returns>A <see cref="UserConfirmationToken"/> object containing the confirmation token for the user.</returns>
-    Task<UserConfirmationToken> Register(RegisterDto data);
+    /// <returns>A <see cref="UserToken"/> object containing the confirmation token for the user.</returns>
+    Task<UserToken> Register(RegisterDto data);
     /// <summary>
     /// Attempts to log in a user with the provided credentials.
     /// </summary>
@@ -21,7 +21,7 @@ public interface IAuthService
     /// <summary>
     ///  Attempts to refresh the access token using the provided refresh token.
     /// </summary>
-    /// <param name="refreshToken">The refresh token used to generate a new access token.</param>
+    /// <param name="token">The refresh token used to generate a new access token.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the new access token, expiration time, and user information on success.</returns>
     Task<LoginResponseDto> RefreshToken(string token);
     /// <summary>
@@ -69,14 +69,14 @@ public interface IAuthService
     ///     Generates a confirmation token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the confirmation token for.</param>
-    /// <returns>A <see cref="UserConfirmationToken"/> object containing the confirmation token on success, null otherwise.</returns>
-    Task<UserConfirmationToken?> GenerateConfirmationToken(string email);
+    /// <returns>A <see cref="UserToken"/> object containing the confirmation token on success, null otherwise.</returns>
+    Task<UserToken?> GenerateConfirmationToken(string email);
     /// <summary>
     ///     Generates a password reset token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the password reset token for.</param>
-    /// <returns>A <see cref="PasswordResetToken"/> object containing the password reset token on success, null otherwise.</returns>
-    Task<PasswordResetToken?> GeneratePasswordResetToken(string email);
+    /// <returns>A <see cref="UserToken"/> object containing the password reset token on success, null otherwise.</returns>
+    Task<UserToken?> GeneratePasswordResetToken(string email);
     /// <summary>
     ///     Resets the password of a user using the provided data.
     /// </summary>

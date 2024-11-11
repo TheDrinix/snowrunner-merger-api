@@ -56,7 +56,7 @@ public class AuthService : IAuthService
     /// Registers a new user using the provided data.
     /// </summary>
     /// <param name="data">A <see cref="RegisterDto"/> object containing the user's registration details.</param>
-    /// <returns>A <see cref="UserConfirmationToken"/> object containing the confirmation token for the user.</returns>
+    /// <returns>A <see cref="UserToken"/> object containing the confirmation token for the user.</returns>
     /// <exception cref="HttpResponseException">
     /// Thrown with different HTTP status codes depending on the validation failure:
     /// <list type="bullet">
@@ -68,7 +68,7 @@ public class AuthService : IAuthService
     ///     </item>
     /// </list>
     /// </exception>
-    public async Task<UserConfirmationToken> Register(RegisterDto data)
+    public async Task<UserToken> Register(RegisterDto data)
     {
         var passwordErrors = ValidatePassword(data.Password);
         if (passwordErrors.Count > 0)
@@ -389,9 +389,10 @@ public class AuthService : IAuthService
     /// <returns>True if the email was successfully verified, false otherwise.</returns>
     public async Task<bool> VerifyEmail(Guid userId, string token)
     {
-        var confirmationToken = await _dbContext.UserConfirmationTokens
+        var confirmationToken = await _dbContext.UserTokens
+            .Where(t => t.Type == TokenType.AccountConfirmation && t.UserId == userId && t.Token == token)
             .Include(t => t.User)
-            .FirstOrDefaultAsync(c => c.UserId == userId && c.Token == token);
+            .FirstOrDefaultAsync();
         
         if (confirmationToken is null || confirmationToken.ExpiresAt < DateTime.UtcNow)
         {
@@ -403,7 +404,7 @@ public class AuthService : IAuthService
         user.EmailConfirmed = true;
 
         _dbContext.Users.Update(user);
-        _dbContext.UserConfirmationTokens.Remove(confirmationToken);
+        _dbContext.UserTokens.Remove(confirmationToken);
         await _dbContext.SaveChangesAsync();
         
         return true;
@@ -468,8 +469,8 @@ public class AuthService : IAuthService
     ///     Generates a confirmation token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the confirmation token for.</param>
-    /// <returns>A <see cref="UserConfirmationToken"/> object containing the confirmation token on success, null otherwise.</returns>
-    public async Task<UserConfirmationToken?> GenerateConfirmationToken(string email)
+    /// <returns>A <see cref="UserToken"/> object containing the confirmation token on success, null otherwise.</returns>
+    public async Task<UserToken?> GenerateConfirmationToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
 
@@ -482,13 +483,17 @@ public class AuthService : IAuthService
     ///     Generates a password reset token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the password reset token for.</param>
-    /// <returns>A <see cref="PasswordResetToken"/> object containing the password reset token on success, null otherwise.</returns>
-    public async Task<PasswordResetToken?> GeneratePasswordResetToken(string email)
+    /// <returns>A <see cref="UserToken"/> object containing the password reset token on success, null otherwise.</returns>
+    public async Task<UserToken?> GeneratePasswordResetToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
 
         if (user is null) return null;
 
+        var tokens = _dbContext.UserTokens
+            .Where(t => t.UserId == user.Id && t.Type == TokenType.PasswordReset)
+            .Select(t => t.Token)
+            .ToHashSet();
         var tokenBytes = new byte[128];
 
         using var rng = RandomNumberGenerator.Create();
@@ -498,16 +503,17 @@ public class AuthService : IAuthService
         {
             rng.GetBytes(tokenBytes);
             token = Convert.ToHexString(tokenBytes);
-        } while (_dbContext.PasswordResetTokens.FirstOrDefault(t => t.Token == token) is not null);
+        } while (tokens.Contains(token));
 
-        var passwordResetToken = new PasswordResetToken
+        var passwordResetToken = new UserToken
         {
             User = user,
             ExpiresAt = DateTime.UtcNow.AddMinutes(30),
-            Token = token
+            Token = token,
+            Type = TokenType.PasswordReset
         };
         
-        _dbContext.PasswordResetTokens.Add(passwordResetToken);
+        _dbContext.UserTokens.Add(passwordResetToken);
         await _dbContext.SaveChangesAsync();
 
         return passwordResetToken;
@@ -522,10 +528,11 @@ public class AuthService : IAuthService
     /// </exception>
     public async Task ResetPassword(ResetPasswordDto data)
     {
-        var tokenEntry = await _dbContext.PasswordResetTokens
+        var tokenEntry = await _dbContext.UserTokens
+            .Where(t => t.Type == TokenType.PasswordReset && t.UserId == data.UserId && t.Token == data.Token)
             .Include(t => t.User)
             .ThenInclude(u => u.UserSessions)
-            .FirstOrDefaultAsync(t => t.UserId == data.UserId && t.Token == data.Token);
+            .FirstOrDefaultAsync();
         
         if (tokenEntry is null || tokenEntry.ExpiresAt < DateTime.UtcNow)
         {
@@ -549,7 +556,7 @@ public class AuthService : IAuthService
         
         _dbContext.Users.Update(user);
         
-        _dbContext.PasswordResetTokens.Remove(tokenEntry);
+        _dbContext.UserTokens.Remove(tokenEntry);
         await _dbContext.SaveChangesAsync();
     }
     
@@ -600,13 +607,18 @@ public class AuthService : IAuthService
     /// Generates a confirmation token for the specified user.
     /// </summary>
     /// <param name="user">The user for whom the confirmation token is generated.</param>
-    /// <returns>A <see cref="UserConfirmationToken"/> object containing the generated token.</returns>
+    /// <returns>A <see cref="UserToken"/> object containing the generated token.</returns>
     /// <remarks>
     /// This method generates a unique confirmation token for the user and stores it in the database.
     /// The token is valid for 1 hour from the time of generation.
     /// </remarks>
-    private async Task<UserConfirmationToken> GenerateConfirmationToken(User user)
+    private async Task<UserToken> GenerateConfirmationToken(User user)
     {
+        var tokens = _dbContext.UserTokens
+            .Where(t => t.UserId == user.Id && t.Type == TokenType.AccountConfirmation)
+            .Select(t => t.Token)
+            .ToHashSet();
+        
         var tokenBytes = new byte[128];
 
         using var rng = RandomNumberGenerator.Create();
@@ -616,17 +628,18 @@ public class AuthService : IAuthService
         {
             rng.GetBytes(tokenBytes);
             token = Convert.ToHexString(tokenBytes);
-        } while(_dbContext.UserConfirmationTokens.FirstOrDefault(t => t.Token == token) is not null);
+        } while(tokens.Contains(token));
         
         
-        var userConfirmationToken = new UserConfirmationToken
+        var userConfirmationToken = new UserToken
         {
             UserId = user.Id,
             Token = Convert.ToHexString(tokenBytes),
-            ExpiresAt = DateTime.UtcNow.AddHours(1)
+            ExpiresAt = DateTime.UtcNow.AddHours(1),
+            Type = TokenType.AccountConfirmation
         };
         
-        _dbContext.UserConfirmationTokens.Add(userConfirmationToken);
+        _dbContext.UserTokens.Add(userConfirmationToken);
         await _dbContext.SaveChangesAsync();
 
         return userConfirmationToken;

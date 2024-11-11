@@ -6,11 +6,11 @@ public record UploadSaveDto
 {
     [MinLength(3)]
     [MaxLength(100)]
-    public string Description { get; set; }
+    public string Description { get; init; }
     [Required]
     // [FileExtensions(Extensions = "zip")]
-    public IFormFile Save { get; set; }
-    [Range(1, 4)]
+    public IFormFile Save { get; init; }
+    [Range(0, 3)]
     [Required]
-    public int SaveNumber { get; set; }
+    public int SaveNumber { get; init; }
 };
