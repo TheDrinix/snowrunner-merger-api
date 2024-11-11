@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Quartz;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Extensions;
+using SnowrunnerMergerApi.Jobs;
 using SnowrunnerMergerApi.Models;
 using SnowrunnerMergerApi.Services;
 using SnowrunnerMergerApi.Services.Interfaces;
@@ -61,6 +63,25 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IGroupsService, GroupsService>();
 builder.Services.AddScoped<ISavesService, SavesService>();
 builder.Services.AddTransient<IEmailSender, EmailSender>();
+
+builder.Services.AddQuartz(q =>
+{
+    var tokensJobKey = new JobKey("PurgeExpiredTokensJob", "Purge");
+    q.AddJob<PurgeExpiredTokensJob>(tokensJobKey);
+    q.AddTrigger(t => t
+        .WithIdentity("Purge expired tokens trigger")
+        .ForJob(tokensJobKey)
+        .WithCronSchedule("0 3 * * 0"));
+    
+    var sessionsJobKey = new JobKey("RevokeExpiredSessionsJob", "Purge");
+    q.AddJob<PurgeExpiredSessionsJob>(sessionsJobKey);
+    q.AddTrigger(t => t
+        .WithIdentity("Purge expired sessions trigger")
+        .ForJob(sessionsJobKey)
+        .WithCronSchedule("0 3 * * 0"));
+});
+
+builder.Services.AddQuartzHostedService(opt => opt.WaitForJobsToComplete = true);
 
 var app = builder.Build();
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
