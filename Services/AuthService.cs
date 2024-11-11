@@ -659,7 +659,7 @@ public class AuthService : IAuthService
            token = Guid.NewGuid().ToString();
         
            encryptedToken = EncryptRefreshToken(token);
-        } while (_dbContext.UserSessions.FirstOrDefault(s => s.RefreshToken == encryptedToken) is not null);
+        } while (_dbContext.UserSessions.Any(s => s.RefreshToken == encryptedToken));
 
         var session = new UserSession
         {
