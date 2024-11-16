@@ -12,7 +12,7 @@ public static class AuthenticationExtension
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(opt =>
             {
-                var jwtSecret = config.GetSection("AppSettings:JwtSecret").Value;
+                var jwtSecret = config.GetSection("Authentication:JwtSecret").Value;
         
                 if (jwtSecret is null)
                 {

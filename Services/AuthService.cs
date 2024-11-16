@@ -739,7 +739,7 @@ public class AuthService : IAuthService
     
     private byte[] EncryptRefreshToken(string token)
     {
-        var encryptionKey = _config.GetSection("AppSettings:RefreshSecret").Value;
+        var encryptionKey = _config.GetSection("Authentication:RefreshSecret").Value;
         
         if (encryptionKey is null)
         {
@@ -794,7 +794,7 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.PrimarySid, data.SessionId.ToString())
         };
 
-        var secret = _config.GetSection("AppSettings:JwtSecret").Value;
+        var secret = _config.GetSection("Authentication:JwtSecret").Value;
 
         if (secret is null)
         {
