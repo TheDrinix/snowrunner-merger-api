@@ -33,6 +33,28 @@ public class SavesService : ISavesService
         
         if (!Directory.Exists(StorageDir)) Directory.CreateDirectory(StorageDir);
     }
+    
+    /// <summary>
+    /// Stores a save file for a specified group.
+    /// </summary>
+    /// <param name="groupId">The ID of the group to store the save file for.</param>
+    /// <param name="data">An <see cref="UploadSaveDto"/> object containing the save file and its metadata.</param>
+    /// <param name="saveSlot">The slot number to store the save file in.</param>
+    /// <returns>A <see cref="StoredSaveInfo"/> object containing information about the stored save file.</returns>
+    /// <exception cref="HttpResponseException">
+    /// Thrown with different HTTP status codes depending on the validation failure:
+    /// <list type="bullet">
+    ///     <item>
+    ///         HttpStatusCode.BadRequest (400): If the file type is invalid or the save file is too big.
+    ///     </item>
+    ///     <item>
+    ///         HttpStatusCode.NotFound (404): If the group is not found.
+    ///     </item>
+    ///     <item>
+    ///         HttpStatusCode.Unauthorized (401): If the user is not authorized to store the save file.
+    ///     </item>
+    /// </list>
+    /// </exception>
     public async Task<StoredSaveInfo> StoreSave(Guid groupId, UploadSaveDto data, int saveSlot)
     {
         if (data.Save.ContentType != "application/zip") throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid file type");
@@ -115,6 +137,27 @@ public class SavesService : ISavesService
         return saveInfo;
     }
     
+    /// <summary>
+    ///     Merges two save files from a group and returns the path to the merged save file.
+    /// </summary>
+    /// <param name="groupId">The ID of the group to merge the save files for.</param>
+    /// <param name="data">A <see cref="MergeSavesDto"/> object containing the save file to merge and its metadata.</param>
+    /// <param name="storedSaveNumber">The slot number of the stored save file to merge with.</param>
+    /// <returns>The path to the merged save file.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with different HTTP status codes depending on the validation failure:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             HttpStatusCode.BadRequest (400): If the file type is invalid, the save file is too big, the save number is invalid, or the save is invalid.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.NotFound (404): If the group is not found.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.Unauthorized (401): If the user is not authorized to merge the save files.
+    ///         </item>
+    ///     </list>
+    /// </exception>
     public async Task<string> MergeSaves(Guid groupId, MergeSavesDto data, int storedSaveNumber)
     {
         if (data.Save.ContentType != "application/zip") throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid file type");
@@ -250,7 +293,21 @@ public class SavesService : ISavesService
         return outputZipPath;
     }
 
-
+    /// <summary>
+    ///     Removes a save file from a group.
+    /// </summary>
+    /// <param name="saveId">The ID of the save file to remove.</param>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with different HTTP status codes depending on the validation failure:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             HttpStatusCode.NotFound (404): If the save file is not found.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.Unauthorized (401): If the user is not authorized to remove the save file.
+    ///         </item>
+    ///     </list>
+    /// </exception>
     public Task RemoveSave(Guid saveId)
     {
         var sessionData = _userService.GetUserSessionData();
@@ -266,6 +323,10 @@ public class SavesService : ISavesService
         return RemoveSave(save);
     }
 
+    /// <summary>
+    ///     Removes stored save data from the database and the file system.
+    /// </summary>
+    /// <param name="save">The <see cref="StoredSaveInfo"/> object to remove.</param>
     public Task RemoveSave(StoredSaveInfo save)
     {
         var saveDirectory = Path.Join(StorageDir, save.Id.ToString());
@@ -280,6 +341,13 @@ public class SavesService : ISavesService
         return _dbContext.SaveChangesAsync();
     }
     
+    /// <summary>
+    ///     Merges two save files
+    /// </summary>
+    /// <param name="uploadedSave">A <see cref="Save"/> to merge with stored save.</param>
+    /// <param name="storedSave">A <see cref="Save"/> to merge with uploaded save.</param>
+    /// <param name="outputSaveNumber">The save slot number of the output save.</param>
+    /// <returns>A <see cref="SaveData"/> object containing the merged save data.</returns>
     private SaveData? MergeSaveData(Save uploadedSave, Save storedSave, int outputSaveNumber)
     {
         if (uploadedSave.SaveData is null || storedSave.SaveData is null) return null;
@@ -313,7 +381,13 @@ public class SavesService : ISavesService
         
         return outputSaveData;
     }
-
+    
+    /// <summary>
+    ///     Validates the save files in a directory.
+    /// </summary>
+    /// <param name="path">The path to the directory containing the save files.</param>
+    /// <param name="saveNumber">The save number to validate.</param>
+    /// <returns>True if the save files are valid, false otherwise.</returns>
     private bool ValidateSaveFiles(string path, int saveNumber)
     {
         var saveFileName = $"CompleteSave{(saveNumber > 0 ? saveNumber : "")}.dat";
@@ -331,7 +405,13 @@ public class SavesService : ISavesService
 
         return count >= 2;
     }
-
+    
+    /// <summary>
+    ///     Loads a save from a directory.
+    /// </summary>
+    /// <param name="saveFileDirectory">The directory containing the save file.</param>
+    /// <param name="saveFileNumber">The save file number.</param>
+    /// <returns>A <see cref="Save"/> object containing the save data.</returns>
     private Save? LoadSave(string saveFileDirectory, int saveFileNumber)
     {
         var saveFilePath = Path.Join(saveFileDirectory, $"CompleteSave{(saveFileNumber > 0 ? saveFileNumber.ToString() : "")}.dat");
