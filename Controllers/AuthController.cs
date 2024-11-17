@@ -1,11 +1,9 @@
-using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Services;
 using SnowrunnerMergerApi.Services.Interfaces;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace SnowrunnerMergerApi.Controllers
 {
@@ -14,12 +12,22 @@ namespace SnowrunnerMergerApi.Controllers
     public class AuthController(IAuthService authService, IEmailSender emailSender) : ControllerBase
     {
         [HttpPost("login")]
+        [SwaggerOperation(Summary = "Logs in a user", Description = "Logs in a user with provided credentials and returns a JWT token")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Logs in successfully", typeof(LoginResponseDto))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request body")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid credentials")]
+        [SwaggerResponse(StatusCodes.Status403Forbidden, "Email not verified")]
         public async Task<ActionResult<LoginResponseDto>> Login([FromBody] LoginDto data)
         {
             return Ok(await authService.Login(data));
         }
         
         [HttpPost("register")]
+        [SwaggerOperation(Summary = "Registers a new user", Description = "Registers a new user with provided details and sends a confirmation email")]
+        [SwaggerResponse(StatusCodes.Status201Created, "User registered successfully")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request body or password requirements not met")]
+        [SwaggerResponse(StatusCodes.Status409Conflict, "User with email already exists")]
+        
         public async Task<IActionResult> Register([FromBody] RegisterDto data)
         {
             var confirmationToken = await authService.Register(data);
@@ -32,6 +40,9 @@ namespace SnowrunnerMergerApi.Controllers
         }
         
         [HttpPost("refresh")]
+        [SwaggerOperation(Summary = "Refreshes JWT token", Description = "Refreshes JWT token using refresh token")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Token refreshed successfully", typeof(LoginResponseDto))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid refresh token")]
         public async Task<ActionResult<LoginResponseDto>> RefreshToken()
         {
             var token = Request.Cookies["refresh_token"];
@@ -44,6 +55,9 @@ namespace SnowrunnerMergerApi.Controllers
         }
         
         [HttpPost("verify-email")]
+        [SwaggerOperation(Summary = "Verifies user's email", Description = "Verifies user's email using provided token")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Email verified successfully")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid token")]
         public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailDto data)
         {
             var verified = await authService.VerifyEmail(data.UserId, data.Token);
@@ -52,6 +66,8 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpGet("google/signin")]
+        [SwaggerOperation(Summary = "Initiates Google sign-in", Description = "Initiates Google sign-in flow")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Returns google signin url", typeof(string))]
         public IActionResult GoogleSignin()
         {
             var credentials = authService.GetGoogleCredentials();
@@ -71,6 +87,9 @@ namespace SnowrunnerMergerApi.Controllers
         }
         
         [HttpGet("google/signin/callback")]
+        [SwaggerOperation(Summary = "Handles Google sign-in callback", Description = "Handles Google sign-in callback and returns JWT token")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Sign-in successful", typeof(LoginResponseDto))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid state token or error during google sign-in")]
         public async Task<IActionResult> GoogleSigninCallback(string? code, string state, string? error)
         {
             if (!authService.ValidateOauthStateToken(state))
@@ -92,6 +111,8 @@ namespace SnowrunnerMergerApi.Controllers
 
         [HttpPost("logout")]
         [Authorize]
+        [SwaggerOperation(Summary = "Logs out a user", Description = "Logs out a user and invalidates refresh token")]
+        [SwaggerResponse(StatusCodes.Status204NoContent, "Logged out successfully")]
         public async Task<IActionResult> Logout()
         {
             await authService.Logout();
@@ -100,6 +121,8 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpPost("resend-confirmation")]
+        [SwaggerOperation(Summary = "Resends confirmation email", Description = "Resends confirmation email to user")]
+        [SwaggerResponse(StatusCodes.Status204NoContent, "Email was sent if a user with provided email exists")]
         public async Task<IActionResult> ResendConfirmationEmail([FromBody] ResendConfirmationDto body)
         {
             var confirmationToken = await authService.GenerateConfirmationToken(body.Email);
@@ -117,6 +140,8 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpPost("request-password-reset")]
+        [SwaggerOperation(Summary = "Requests password reset", Description = "Requests password reset and sends an email with reset link")]
+        [SwaggerResponse(StatusCodes.Status204NoContent, "Email was sent if a user with provided email exists")]
         public async Task<IActionResult> RequestPasswordReset([FromBody] RequestResetPasswordDto body, [FromQuery] string? origin)
         {
             var resetToken = await authService.GeneratePasswordResetToken(body.Email);
@@ -152,6 +177,9 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpPost("reset-password")]
+        [SwaggerOperation(Summary = "Resets user's password", Description = "Resets user's password using provided token")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Password reset successfully")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid token")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto body)
         {
             await authService.ResetPassword(body);

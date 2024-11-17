@@ -27,7 +27,7 @@
         <PackageReference Include="Quartz" Version="3.13.1" />
         <PackageReference Include="Quartz.AspNetCore" Version="3.13.1" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+        <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="7.0.0" />
         <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.5.1" />
     </ItemGroup>
-
 </Project>
