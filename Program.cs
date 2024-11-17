@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 using Quartz;
 using SnowrunnerMergerApi.Data;
 using SnowrunnerMergerApi.Exceptions;
@@ -71,14 +72,14 @@ builder.Services.AddQuartz(q =>
     q.AddTrigger(t => t
         .WithIdentity("Purge expired tokens trigger")
         .ForJob(tokensJobKey)
-        .WithCronSchedule("0 3 * * 0"));
+        .WithCronSchedule("0 0 3 ? * SUN"));
     
     var sessionsJobKey = new JobKey("RevokeExpiredSessionsJob", "Purge");
     q.AddJob<PurgeExpiredSessionsJob>(sessionsJobKey);
     q.AddTrigger(t => t
         .WithIdentity("Purge expired sessions trigger")
         .ForJob(sessionsJobKey)
-        .WithCronSchedule("0 3 * * 0"));
+        .WithCronSchedule("0 0 3 ? * SUN"));
 });
 
 builder.Services.AddQuartzHostedService(opt => opt.WaitForJobsToComplete = true);
