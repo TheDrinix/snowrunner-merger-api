@@ -40,6 +40,9 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpGet("refresh")]
+        [SwaggerOperation(Summary = "Gets long-lived refresh token", Description = "Gets long-lived refresh token for a user to use in frontend (desktop app)")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Refresh token retrieved successfully", typeof(RefreshTokenDto))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized)]
         [Authorize]
         public async Task<ActionResult<RefreshTokenDto>> GetLongLivedRefreshToken()
         {
