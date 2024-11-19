@@ -2,7 +2,6 @@
 
 public record RefreshTokenData
 {
-    public User User { get; init; }
-    public string RefreshToken { get; init; }
-    public DateTime ExpiresAt { get; init; }
+    public string Token { get; init; }
+    public UserSession Session { get; init; }
 };

@@ -21,9 +21,17 @@ public interface IAuthService
     /// <summary>
     ///  Attempts to refresh the access token using the provided refresh token.
     /// </summary>
-    /// <param name="token">The refresh token used to generate a new access token.</param>
-    /// <returns>A <see cref="LoginResponseDto"/> object containing the new access token, expiration time, and user information on success.</returns>
-    Task<LoginResponseDto> RefreshToken(string token);
+    /// <param name="refreshToken">The refresh token used to generate a new access token.</param>
+    /// <param name="isCookieToken">A boolean indicating whether the refresh token is stored in a cookie.</param>
+    /// <param name="extendedLifespan">A boolean indicating whether the new refresh token should have an extended lifespan.</param>
+    /// <returns>A <see cref="RefreshResponseDto"/> object containing the new access token, expiration time, and user information on success.</returns>
+    Task<RefreshResponseDto> RefreshToken(string refreshToken, bool isCookieToken = true);
+    /// <summary>
+    ///     Retrieves a long-lived refresh token for the user.
+    /// </summary>
+    /// <param name="userId">The ID of the user to generate the refresh token for.</param>
+    /// <returns>A <see cref="RefreshTokenDto"/> object containing the long-lived refresh token and expiration time on success.</returns>
+    Task<RefreshTokenDto> GetLongLivedRefreshToken(Guid userId);
     /// <summary>
     ///     Retrieves the Google OAuth2 credentials from the configuration.
     /// </summary>

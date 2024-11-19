@@ -9,6 +9,7 @@ public class UserSession
 {
     public Guid Id { get; set; }
     public byte[] RefreshToken { get; set; }
+    public bool HasLongLivedRefreshToken { get; set; } = false;
     public DateTime ExpiresAt { get; set; }
     public bool IsRevoked { get; set; }
     public Guid UserId { get; set; }

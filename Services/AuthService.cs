@@ -155,14 +155,14 @@ public class AuthService : IAuthService
             throw new HttpResponseException(HttpStatusCode.Forbidden, "Email not confirmed");
         }
 
-        var sessionData = await GenerateRefreshToken(user);
+        var refreshTokenData = await GenerateRefreshToken(user);
         
         var token = GenerateJwt(new JwtData()
         {
             Id = user.Id, 
             Username = user.Username, 
             Email = user.Email,
-            SessionId = sessionData.Id
+            SessionId = refreshTokenData.Session.Id
         });
         
         return new LoginResponseDto
@@ -177,17 +177,34 @@ public class AuthService : IAuthService
     ///  Attempts to refresh the access token using the provided refresh token.
     /// </summary>
     /// <param name="refreshToken">The refresh token used to generate a new access token.</param>
-    /// <returns>A <see cref="LoginResponseDto"/> object containing the new access token, expiration time, and user information on success.</returns>
+    /// <param name="isCookieToken">A boolean indicating whether the refresh token is stored in a cookie.</param>
+    /// <returns>A <see cref="RefreshResponseDto"/> object containing the new access token, expiration time, and user information on success.</returns>
     /// <exception cref="HttpResponseException">
     ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the refresh token is invalid.
     /// </exception>
-    public async Task<LoginResponseDto> RefreshToken(string refreshToken)
+    public async Task<RefreshResponseDto> RefreshToken(string refreshToken, bool isCookieToken = true)
     {
-        var session = await ValidateRefreshToken(refreshToken);
+        var refreshTokenData = await ValidateRefreshToken(refreshToken);
         
-        if (session is null)
+        if (refreshTokenData is null)
         {
             throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        var session = refreshTokenData.Session;
+        
+        if (isCookieToken)
+        {
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = _sameSiteMode,
+                Expires = session.ExpiresAt,
+                Path = "/api/auth/refresh"
+            };
+
+            _httpContextAccessor.HttpContext?.Response.Cookies.Append("refresh_token", refreshTokenData.Token, cookieOptions);
         }
         
         var token = GenerateJwt(new JwtData()
@@ -197,13 +214,40 @@ public class AuthService : IAuthService
             Email = session.User.Email,
             SessionId = session.Id
         });
-        
-        
-        return new LoginResponseDto
+
+
+        return new RefreshResponseDto()
         {
             AccessToken = token,
             ExpiresIn = AccessTokenLifetime,
-            User = session.User
+            User = session.User,
+            RefreshToken = isCookieToken ? null : refreshTokenData.Token
+        };
+    }
+
+    /// <summary>
+    ///     Retrieves a long-lived refresh token for the user.
+    /// </summary>
+    /// <param name="userId">The ID of the user to generate the refresh token for.</param>
+    /// <returns>A <see cref="RefreshTokenDto"/> object containing the long-lived refresh token and expiration time on success.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the user is not found (is not authorized).
+    /// </exception>
+    public async Task<RefreshTokenDto> GetLongLivedRefreshToken(Guid userId)
+    {
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        
+        if (user is null)
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+
+        var refreshTokenData = await GenerateRefreshToken(user, true, false);
+        
+        return new RefreshTokenDto
+        {
+            Token = refreshTokenData.Token,
+            ExpiresAt = refreshTokenData.Session.ExpiresAt
         };
     }
     
@@ -294,14 +338,14 @@ public class AuthService : IAuthService
             await _dbContext.SaveChangesAsync();
         }
 
-        var sessionData = await GenerateRefreshToken(user);
+        var refreshTokenData = await GenerateRefreshToken(user);
         
         var token = GenerateJwt(new JwtData()
         {
             Id = user.Id, 
             Username = user.Username, 
             Email = user.Email,
-            SessionId = sessionData.Id
+            SessionId = refreshTokenData.Session.Id
         });
 
         return new LoginResponseDto
@@ -649,8 +693,8 @@ public class AuthService : IAuthService
     ///     Generates a refresh token for the specified user.
     /// </summary>
     /// <param name="user">The user for whom the refresh token is generated.</param>
-    /// <returns>A <see cref="UserSession"/> object containing the generated refresh token.</returns>
-    private async Task<UserSession> GenerateRefreshToken(User user)
+    /// <returns>A <see cref="RefreshTokenData"/> object containing the generated refresh token.</returns>
+    private async Task<RefreshTokenData> GenerateRefreshToken(User user, bool extendedLifespan = false, bool storeInCookie = true)
     {
         string token;
         byte[] encryptedToken;
@@ -665,39 +709,40 @@ public class AuthService : IAuthService
         {
             User = user,
             RefreshToken = encryptedToken,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            ExpiresAt = DateTime.UtcNow.AddDays(extendedLifespan ? 90 : 7),
+            HasLongLivedRefreshToken = extendedLifespan
         };
         
         await _dbContext.UserSessions.AddAsync(session);
         await _dbContext.SaveChangesAsync();
 
-        var cookieOptions = new CookieOptions
+        if (storeInCookie)
         {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = _sameSiteMode,
-            Expires = session.ExpiresAt,
-            Path = "/api/auth/refresh"
-        };
+            var cookieOptions = new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = _sameSiteMode,
+                Expires = session.ExpiresAt,
+                Path = "/api/auth/refresh"
+            };
 
-        _httpContextAccessor.HttpContext?.Response.Cookies.Append("refresh_token", token, cookieOptions);
+            _httpContextAccessor.HttpContext?.Response.Cookies.Append("refresh_token", token, cookieOptions);
+        }
         
-        /*return new RefreshTokenData()
+        return new RefreshTokenData
         {
-            ExpiresAt = session.ExpiresAt,
-            RefreshToken = token,
-            User = user
-        };*/
-
-        return session;
+            Session = session,
+            Token = token
+        };
     }
 
     /// <summary>
     ///     Validates the refresh token and generates a new one if it is valid.
     /// </summary>
     /// <param name="token">The refresh token to validate.</param>
-    /// <returns>A <see cref="UserSession"/> object containing the user session data if the token is valid, null otherwise.</returns>
-    private async Task<UserSession?> ValidateRefreshToken(string token)
+    /// <returns>A <see cref="RefreshTokenData"/> object containing the user session data if the token is valid, null otherwise.</returns>
+    private async Task<RefreshTokenData?> ValidateRefreshToken(string token)
     {
         var encryptedToken = EncryptRefreshToken(token);
 
@@ -719,22 +764,15 @@ public class AuthService : IAuthService
             newEncryptedToken = EncryptRefreshToken(newRefreshToken);
         } while (_dbContext.UserSessions.FirstOrDefault(s => s.RefreshToken == newEncryptedToken) is not null);
         
-        session.ExpiresAt = DateTime.UtcNow.AddDays(7);
+        session.ExpiresAt = DateTime.UtcNow.AddDays(session.HasLongLivedRefreshToken ? 90 : 7);
         session.RefreshToken = newEncryptedToken;
         await _dbContext.SaveChangesAsync();
-        
-        var cookieOptions = new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = _sameSiteMode,
-            Expires = session.ExpiresAt,
-            Path = "/api/auth/refresh"
-        };
-        
-        _httpContextAccessor.HttpContext?.Response.Cookies.Append("refresh_token", newRefreshToken, cookieOptions);
 
-        return session;
+        return new RefreshTokenData()
+        {
+            Session = session,
+            Token = newRefreshToken
+        };
     }
     
     private byte[] EncryptRefreshToken(string token)

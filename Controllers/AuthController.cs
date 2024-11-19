@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
@@ -27,7 +28,6 @@ namespace SnowrunnerMergerApi.Controllers
         [SwaggerResponse(StatusCodes.Status201Created, "User registered successfully")]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request body or password requirements not met")]
         [SwaggerResponse(StatusCodes.Status409Conflict, "User with email already exists")]
-        
         public async Task<IActionResult> Register([FromBody] RegisterDto data)
         {
             var confirmationToken = await authService.Register(data);
@@ -38,18 +38,32 @@ namespace SnowrunnerMergerApi.Controllers
 
             return Created();
         }
+
+        [HttpGet("refresh")]
+        [Authorize]
+        public async Task<ActionResult<RefreshTokenDto>> GetLongLivedRefreshToken()
+        {
+            var userData = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            
+            if (userData is null) return Unauthorized();
+            
+            var data = await authService.GetLongLivedRefreshToken(Guid.Parse(userData));
+            
+            return Ok(data);
+        }
         
         [HttpPost("refresh")]
         [SwaggerOperation(Summary = "Refreshes JWT token", Description = "Refreshes JWT token using refresh token")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Token refreshed successfully", typeof(LoginResponseDto))]
+        [SwaggerResponse(StatusCodes.Status200OK, "Token refreshed successfully", typeof(RefreshResponseDto))]
         [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid refresh token")]
-        public async Task<ActionResult<LoginResponseDto>> RefreshToken()
+        public async Task<ActionResult<RefreshResponseDto>> RefreshToken(RefreshDto body)
         {
-            var token = Request.Cookies["refresh_token"];
+            var isCookieToken = body.Token is null;
+            var token = body.Token ?? Request.Cookies["refresh_token"];
             
             if (string.IsNullOrEmpty(token)) return Unauthorized();
             
-            var data = await authService.RefreshToken(token);
+            var data = await authService.RefreshToken(token, isCookieToken);
             
             return Ok(data);
         }

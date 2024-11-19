@@ -69,5 +69,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> opt) : DbContext(opt)
             .HasForeignKey(t => t.UserId)
             .HasPrincipalKey(u => u.Id)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder
+            .Entity<UserSession>()
+            .Property(s => s.HasLongLivedRefreshToken)
+            .HasDefaultValue(false);
     }
 }
