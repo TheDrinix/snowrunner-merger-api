@@ -243,9 +243,8 @@ public class SavesService : ISavesService
             }
             
             var filePrefix = data.OutputSaveNumber > 0 ? data.OutputSaveNumber.ToString() + '_' : "";
-            var outputFileName = data.SaveNumber == 0
-                ? filePrefix + currentFileName
-                : filePrefix + currentFileName[2..];
+            
+            var outputFileName = filePrefix + currentFileName;
             var outputFilePath = Path.Join(outputDirectory, outputFileName);
             
             File.Copy(file, outputFilePath, overwrite: true);
