@@ -41,15 +41,15 @@ public class EmailSender : IEmailSender
         client.DeliveryMethod = SmtpDeliveryMethod.Network;
         client.UseDefaultCredentials = false;
         client.Credentials = new NetworkCredential(mailConfig.Username, mailConfig.Password);
-        var mail = new MailMessage("noreply@drinix.xyz", email)
+        var mail = new MailMessage(from: mailConfig.Address, to: email)
         {
             Subject = subject,
             Body = message,
             IsBodyHtml = true
         };
             
-        mail.From = new MailAddress("noreply@drinix.xyz", "Snowrunner Merger");
-            
+        mail.From = new MailAddress(mailConfig.Address, "Snowrunner Merger");
+
         await client.SendMailAsync(mail);
     }
 }

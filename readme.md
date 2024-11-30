@@ -55,7 +55,8 @@ Configure your SMTP server settings in `appsettings.json` or using environment v
     "Host": "your_host",
     "Port": "host_port",
     "Username": "your_smtp_username",
-    "Password": "your_smtp_password"
+    "Password": "your_smtp_password",
+    "Address": "your_email_address"
   }
 }
 ```
