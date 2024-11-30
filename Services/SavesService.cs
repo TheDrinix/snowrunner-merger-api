@@ -380,7 +380,7 @@ public class SavesService : ISavesService
         var outputSaveData = storedSave.SaveData;
         outputSaveData.SslValue.persistentProfileData = uploadedProfileData;
         outputSaveData.SslValue.gameStat = uploadedSave.SaveData.SslValue.gameStat;
-        outputSaveData.SslValue.garagesData = uploadedSave.SaveData.SslValue.garagesData;
+        // outputSaveData.SslValue.garagesData = uploadedSave.SaveData.SslValue.garagesData;
         outputSaveData.SslValue.waypoints = uploadedSave.SaveData.SslValue.waypoints;
         outputSaveData.SslValue.saveId = outputSaveNumber;
         
