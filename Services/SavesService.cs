@@ -237,6 +237,11 @@ public class SavesService : ISavesService
         foreach (var file in mapDataFiles)
         {
             var currentFileName = Path.GetFileName(file);
+            if (storedSaveData.SaveNumber > 0)
+            {
+                currentFileName = currentFileName[2..];
+            }
+            
             var filePrefix = data.OutputSaveNumber > 0 ? data.OutputSaveNumber.ToString() + '_' : "";
             var outputFileName = data.SaveNumber == 0
                 ? filePrefix + currentFileName
