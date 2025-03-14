@@ -427,19 +427,17 @@ public class AuthService : IAuthService
         
         return state == token;
     }
-
-    // TODO: Remove the userId from the account confirmation
+    
     /// <summary>
     ///     Verifies the email of a user using the provided confirmation token.
     /// </summary>
-    /// <param name="userId">The ID of the user whose email is being verified.</param>
     /// <param name="token">The confirmation token used to verify the email.</param>
     /// <returns>True if the email was successfully verified, false otherwise.</returns>
-    public async Task<bool> VerifyEmail(Guid userId, string token)
+    public async Task<bool> VerifyEmail(string token)
     {
         var confirmationToken = await _dbContext.UserTokens
             .OfType<AccountConfirmationToken>()
-            .Where(t => t.UserId == userId && t.Token == token)
+            .Where(t => t.Token == token)
             .Include(t => t.User)
             .FirstOrDefaultAsync();
         

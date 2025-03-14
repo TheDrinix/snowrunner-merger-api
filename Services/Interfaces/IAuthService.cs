@@ -66,10 +66,9 @@ public interface IAuthService
     /// <summary>
     ///     Verifies the email of a user using the provided confirmation token.
     /// </summary>
-    /// <param name="userId">The ID of the user whose email is being verified.</param>
     /// <param name="token">The confirmation token used to verify the email.</param>
     /// <returns>True if the email was successfully verified, false otherwise.</returns>
-    Task<bool> VerifyEmail(Guid userId, string token);
+    Task<bool> VerifyEmail(string token);
     /// <summary>
     ///     Logs out the current user by removing the session from the database and deleting the refresh token cookie.
     /// </summary>

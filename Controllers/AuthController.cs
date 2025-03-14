@@ -5,6 +5,7 @@ using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Services;
 using SnowrunnerMergerApi.Services.Interfaces;
 using Swashbuckle.AspNetCore.Annotations;
+using System.Net;
 
 namespace SnowrunnerMergerApi.Controllers
 {
@@ -32,9 +33,22 @@ namespace SnowrunnerMergerApi.Controllers
         {
             var confirmationToken = await authService.Register(data);
             
-            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
+            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?token={WebUtility.UrlEncode(confirmationToken.Token)}");
             
-            await emailSender.SendEmailAsync(data.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
+            var html = $"""
+                        <html>
+                            <body>        
+                                <h2>Verify your email</h2>
+                                <p>
+                                    Please verify your email by clicking <a href="{confirmationUrl}">here</a>.
+                                </p>
+                                <p>The link will be valid for an hour.</p>
+                                <p>If you did not register, please ignore this email.</p>
+                            </body>
+                        </html>
+                      """;
+            
+            await emailSender.SendEmailAsync(data.Email, "Verify your email", html);
 
             return Created();
         }
@@ -77,7 +91,7 @@ namespace SnowrunnerMergerApi.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid token")]
         public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailDto data)
         {
-            var verified = await authService.VerifyEmail(data.UserId, data.Token);
+            var verified = await authService.VerifyEmail(data.Token);
 
             return verified ? Ok() : BadRequest();
         }
@@ -149,9 +163,22 @@ namespace SnowrunnerMergerApi.Controllers
                 return NoContent();
             }
             
-            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
+            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?token={WebUtility.UrlEncode(confirmationToken.Token)}");
             
-            await emailSender.SendEmailAsync(body.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
+            var html = $"""
+                          <html>
+                              <body>        
+                                  <h2>Verify your email</h2>
+                                  <p>
+                                      Please verify your email by clicking <a href="{confirmationUrl}">here</a>.
+                                  </p>
+                                  <p>The link will be valid for an hour.</p>
+                                  <p>If you did not register, please ignore this email.</p>
+                              </body>
+                          </html>
+                        """;
+            
+            await emailSender.SendEmailAsync(body.Email, "Verify your email", html);
             
             return NoContent();
         }
@@ -173,7 +200,7 @@ namespace SnowrunnerMergerApi.Controllers
                 origin = Request.Headers.Origin;
             }
             
-            var resetUrl = new Uri($"{origin}/auth/reset-password?user-id={resetToken.UserId}&token={resetToken.Token}");
+            var resetUrl = new Uri($"{origin}/auth/reset-password?token={WebUtility.UrlEncode(resetToken.Token)}");
 
             var html = $"""
                             <html>
