@@ -12,10 +12,12 @@ using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Models.Auth.Google;
+using SnowrunnerMergerApi.Models.Auth.Tokens;
 using SnowrunnerMergerApi.Services.Interfaces;
 using SameSiteMode = Microsoft.AspNetCore.Http.SameSiteMode;
 
 namespace SnowrunnerMergerApi.Services;
+
 public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
@@ -25,6 +27,7 @@ public class AuthService : IAuthService
     private readonly HttpClient _httpClient;
     private readonly IWebHostEnvironment _webHostEnvironment;
     private readonly SameSiteMode _sameSiteMode = SameSiteMode.Lax;
+    private readonly int _maxRetries = 5;
 
     private const int AccessTokenLifetime = 60 * 60 * 3; // 3 hours
 
@@ -56,7 +59,7 @@ public class AuthService : IAuthService
     /// Registers a new user using the provided data.
     /// </summary>
     /// <param name="data">A <see cref="RegisterDto"/> object containing the user's registration details.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the confirmation token for the user.</returns>
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the confirmation token for the user.</returns>
     /// <exception cref="HttpResponseException">
     /// Thrown with different HTTP status codes depending on the validation failure:
     /// <list type="bullet">
@@ -68,7 +71,7 @@ public class AuthService : IAuthService
     ///     </item>
     /// </list>
     /// </exception>
-    public async Task<UserToken> Register(RegisterDto data)
+    public async Task<AccountConfirmationToken> Register(RegisterDto data)
     {
         var passwordErrors = ValidatePassword(data.Password);
         if (passwordErrors.Count > 0)
@@ -138,7 +141,7 @@ public class AuthService : IAuthService
     public async Task<LoginResponseDto> Login(LoginDto data)
     {
         var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.NormalizedEmail == data.Email.ToUpper());
+            .FirstOrDefaultAsync(u => u.NormalizedEmail.Equals(data.Email, StringComparison.CurrentCultureIgnoreCase));
         
         if (user is null)
         {
@@ -425,6 +428,7 @@ public class AuthService : IAuthService
         return state == token;
     }
 
+    // TODO: Remove the userId from the account confirmation
     /// <summary>
     ///     Verifies the email of a user using the provided confirmation token.
     /// </summary>
@@ -434,7 +438,8 @@ public class AuthService : IAuthService
     public async Task<bool> VerifyEmail(Guid userId, string token)
     {
         var confirmationToken = await _dbContext.UserTokens
-            .Where(t => t.Type == TokenType.AccountConfirmation && t.UserId == userId && t.Token == token)
+            .OfType<AccountConfirmationToken>()
+            .Where(t => t.UserId == userId && t.Token == token)
             .Include(t => t.User)
             .FirstOrDefaultAsync();
         
@@ -513,8 +518,8 @@ public class AuthService : IAuthService
     ///     Generates a confirmation token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the confirmation token for.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the confirmation token on success, null otherwise.</returns>
-    public async Task<UserToken?> GenerateConfirmationToken(string email)
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the confirmation token on success, null otherwise.</returns>
+    public async Task<AccountConfirmationToken?> GenerateConfirmationToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
 
@@ -527,40 +532,50 @@ public class AuthService : IAuthService
     ///     Generates a password reset token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the password reset token for.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the password reset token on success, null otherwise.</returns>
-    public async Task<UserToken?> GeneratePasswordResetToken(string email)
+    /// <returns>A <see cref="PasswordResetToken"/> object containing the password reset token on success, null otherwise.</returns>
+    public async Task<PasswordResetToken?> GeneratePasswordResetToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
 
         if (user is null) return null;
-
-        var tokens = _dbContext.UserTokens
-            .Where(t => t.UserId == user.Id && t.Type == TokenType.PasswordReset)
-            .Select(t => t.Token)
-            .ToHashSet();
-        var tokenBytes = new byte[128];
-
+        
         using var rng = RandomNumberGenerator.Create();
 
-        string token;
-        do
+        for (var retry = 0; retry < _maxRetries; retry++)
         {
+            var tokenBytes = new byte[256];
             rng.GetBytes(tokenBytes);
-            token = Convert.ToHexString(tokenBytes);
-        } while (tokens.Contains(token));
+            var token = Convert.ToBase64String(tokenBytes);
 
-        var passwordResetToken = new UserToken
-        {
-            User = user,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(30),
-            Token = token,
-            Type = TokenType.PasswordReset
-        };
-        
-        _dbContext.UserTokens.Add(passwordResetToken);
-        await _dbContext.SaveChangesAsync();
+            var passwordResetToken = new PasswordResetToken
+            {
+                UserId = user.Id,
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token
+            };
 
-        return passwordResetToken;
+            try
+            {
+                _dbContext.UserTokens.Add(passwordResetToken);
+                await _dbContext.SaveChangesAsync();
+
+                return passwordResetToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate password reset token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate password reset token");
     }
 
     /// <summary>
@@ -573,10 +588,10 @@ public class AuthService : IAuthService
     public async Task ResetPassword(ResetPasswordDto data)
     {
         var tokenEntry = await _dbContext.UserTokens
-            .Where(t => t.Type == TokenType.PasswordReset && t.UserId == data.UserId && t.Token == data.Token)
+            .OfType<PasswordResetToken>()
             .Include(t => t.User)
-            .ThenInclude(u => u.UserSessions)
-            .FirstOrDefaultAsync();
+            .ThenInclude(user => user.UserSessions)
+            .FirstOrDefaultAsync(t => t.Token == data.Token);
         
         if (tokenEntry is null || tokenEntry.ExpiresAt < DateTime.UtcNow)
         {
@@ -651,42 +666,50 @@ public class AuthService : IAuthService
     /// Generates a confirmation token for the specified user.
     /// </summary>
     /// <param name="user">The user for whom the confirmation token is generated.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the generated token.</returns>
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the generated token.</returns>
     /// <remarks>
     /// This method generates a unique confirmation token for the user and stores it in the database.
     /// The token is valid for 1 hour from the time of generation.
     /// </remarks>
-    private async Task<UserToken> GenerateConfirmationToken(User user)
+    private async Task<AccountConfirmationToken> GenerateConfirmationToken(User user)
     {
-        var tokens = _dbContext.UserTokens
-            .Where(t => t.UserId == user.Id && t.Type == TokenType.AccountConfirmation)
-            .Select(t => t.Token)
-            .ToHashSet();
-        
-        var tokenBytes = new byte[128];
-
         using var rng = RandomNumberGenerator.Create();
 
-        string token;
-        do
+        for (var retry = 0; retry < _maxRetries; retry++)
         {
+            var tokenBytes = new byte[256];
             rng.GetBytes(tokenBytes);
-            token = Convert.ToHexString(tokenBytes);
-        } while(tokens.Contains(token));
-        
-        
-        var userConfirmationToken = new UserToken
-        {
-            UserId = user.Id,
-            Token = Convert.ToHexString(tokenBytes),
-            ExpiresAt = DateTime.UtcNow.AddHours(1),
-            Type = TokenType.AccountConfirmation
-        };
-        
-        _dbContext.UserTokens.Add(userConfirmationToken);
-        await _dbContext.SaveChangesAsync();
+            var token = Convert.ToBase64String(tokenBytes);
 
-        return userConfirmationToken;
+            var userConfirmationToken = new AccountConfirmationToken
+            {
+                UserId = user.Id,
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token
+            };
+
+            try
+            {
+                _dbContext.UserTokens.Add(userConfirmationToken);
+                await _dbContext.SaveChangesAsync();
+
+                return userConfirmationToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate confirmation token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate confirmation token");
     }
 
     /// <summary>
