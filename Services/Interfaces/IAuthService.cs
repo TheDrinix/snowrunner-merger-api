@@ -58,6 +58,10 @@ public interface IAuthService
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri);
 
+    // TODO: Add documentation
+    Task<LoginResponseDto> LinkGoogleAccount(string linkingToken);
+    Task<LoginResponseDto> FinishAccountSetup(FinishAccountSetupDto data);
+
     /// <summary>
     ///     Retrieves the Google OAuth2 callback URL from the configuration.
     /// </summary>

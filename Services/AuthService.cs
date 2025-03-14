@@ -322,6 +322,11 @@ public class AuthService : IAuthService
 
             if (user is not null)
             {
+                if (user.GoogleId is not null)
+                {
+                    throw new HttpResponseException(HttpStatusCode.Conflict, "There's a different google account linked to this email");
+                }
+                
                 var accountLinkingToken = await GenerateLinkingToken(user, userData.Id);
                 
                 return new GoogleSignInResult.GoogleSignInLinkRequired(accountLinkingToken);
@@ -355,6 +360,104 @@ public class AuthService : IAuthService
             ExpiresIn = AccessTokenLifetime,
             User = user
         });
+    }
+
+    public async Task<LoginResponseDto> LinkGoogleAccount(string linkingToken)
+    {
+        var linkingTokenEntry = await _dbContext.UserTokens
+            .OfType<AccountLinkingToken>()
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.Token == linkingToken);
+
+        if (linkingTokenEntry is null || linkingTokenEntry.ExpiresAt < DateTime.UtcNow)
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        var user = linkingTokenEntry.User;
+        user.GoogleId = linkingTokenEntry.GoogleId;
+        
+        _dbContext.Users.Update(user);
+        _dbContext.UserTokens.Remove(linkingTokenEntry);
+        
+        await _dbContext.SaveChangesAsync();
+        
+        var refreshTokenData = await GenerateRefreshToken(user);
+        
+        var token = GenerateJwt(new JwtData()
+        {
+            Id = user.Id, 
+            Username = user.Username, 
+            Email = user.Email,
+            SessionId = refreshTokenData.Session.Id
+        });
+        
+        return new LoginResponseDto
+        {
+            AccessToken = token,
+            ExpiresIn = AccessTokenLifetime,
+            User = user
+        };
+    }
+
+    public async Task<LoginResponseDto> FinishAccountSetup(FinishAccountSetupDto data)
+    {
+        var completionTokenEntry = await _dbContext.UserTokens
+            .OfType<AccountCompletionToken>()
+            .FirstOrDefaultAsync(t => t.Token == data.CompletionToken);
+        
+        if (completionTokenEntry is null || completionTokenEntry.ExpiresAt < DateTime.UtcNow)
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        var passwordErrors = ValidatePassword(data.Password);
+        
+        if (passwordErrors.Count > 0)
+        {
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", new Dictionary<string, object> {{"password", passwordErrors}});
+        }
+        
+        var passwordSalt = new byte[128 / 8];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(passwordSalt);
+        }
+        
+        var user = new User
+        {
+            Email = completionTokenEntry.Email,
+            GoogleId = completionTokenEntry.GoogleId,
+            Username = data.Username,
+            NormalizedUsername = data.Username.ToUpper(),
+            NormalizedEmail = completionTokenEntry.Email.ToUpper(),
+            PasswordHash = HashPassword(data.Password, passwordSalt),
+            PasswordSalt = passwordSalt,
+            CreatedAt = DateTime.UtcNow,
+            EmailConfirmed = true
+        };
+        
+        _dbContext.Users.Add(user);
+        _dbContext.UserTokens.Remove(completionTokenEntry);
+        
+        await _dbContext.SaveChangesAsync();
+        
+        var refreshTokenData = await GenerateRefreshToken(user);
+        
+        var token = GenerateJwt(new JwtData()
+        {
+            Id = user.Id, 
+            Username = user.Username, 
+            Email = user.Email,
+            SessionId = refreshTokenData.Session.Id
+        });
+
+        return new LoginResponseDto()
+        {
+            AccessToken = token,
+            ExpiresIn = AccessTokenLifetime,
+            User = user
+        };
     }
 
     /// <summary>
@@ -715,7 +818,7 @@ public class AuthService : IAuthService
 
         for (var retry = 0; retry < _maxRetries; retry++)
         {
-            var tokenBytes = new byte[256];
+            var tokenBytes = new byte[256 / 8];
             rng.GetBytes(tokenBytes);
             var token = Convert.ToBase64String(tokenBytes);
 
@@ -757,7 +860,7 @@ public class AuthService : IAuthService
 
         for (var retry = 0; retry < _maxRetries; retry++)
         {
-            var tokenBytes = new byte[256];
+            var tokenBytes = new byte[256 / 8];
             rng.GetBytes(tokenBytes);
             var token = Convert.ToBase64String(tokenBytes);
 
