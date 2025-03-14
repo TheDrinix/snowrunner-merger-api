@@ -159,6 +159,22 @@ namespace SnowrunnerMergerApi.Controllers
             };
         }
 
+        [HttpPost("google/link-account")]
+        public async Task<IActionResult> LinkAccount([FromBody] LinkAccountDto data)
+        {
+            var accessTokenData = await authService.LinkGoogleAccount(data.LinkingToken);
+            
+            return Ok(accessTokenData);
+        }
+        
+        [HttpPost("google/finish-account-setup")]
+        public async Task<IActionResult> FinishAccountSetup([FromBody] FinishAccountSetupDto data)
+        {
+            var accessTokenData = await authService.FinishAccountSetup(data);
+            
+            return Ok(accessTokenData);
+        }
+
         [HttpPost("logout")]
         [Authorize]
         [SwaggerOperation(Summary = "Logs out a user", Description = "Logs out a user and invalidates refresh token")]
