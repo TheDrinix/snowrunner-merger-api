@@ -18,6 +18,8 @@ public class User
     public byte[] PasswordSalt { get; set; }
     [JsonIgnore]
     public bool EmailConfirmed { get; set; }
+    [JsonIgnore]
+    public string? GoogleId { get; set; }
     public DateTime CreatedAt { get; set; }
     [JsonIgnore]
     public List<UserSession> UserSessions { get; set; }
