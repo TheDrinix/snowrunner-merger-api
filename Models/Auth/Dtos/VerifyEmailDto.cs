@@ -8,12 +8,6 @@ namespace SnowrunnerMergerApi.Models.Auth.Dtos;
 public record VerifyEmailDto
 {
     /// <summary>
-    /// Gets the user ID.
-    /// </summary>
-    [Required]
-    public Guid UserId { get; init; }
-
-    /// <summary>
     /// Gets the verification token.
     /// </summary>
     [Required]

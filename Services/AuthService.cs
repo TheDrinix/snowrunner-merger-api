@@ -281,7 +281,7 @@ public class AuthService : IAuthService
     /// <exception cref="HttpResponseException">
     ///     Thrown with an HTTP status code of HttpStatusCode.BadRequest (400) if the access token or user data is invalid.
     /// </exception>
-    public async Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri)
+    public async Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri)
     {
         var credentials = GetGoogleCredentials();
         
@@ -314,24 +314,22 @@ public class AuthService : IAuthService
         }
         
         
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == userData.Email.ToUpper());
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.GoogleId == userData.Id);
         
         if (user is null)
         {
-            user = new User()
+            user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail.Equals(userData.Email, StringComparison.CurrentCultureIgnoreCase));
+
+            if (user is not null)
             {
-                Username = userData.FirstName,
-                Email = userData.Email,
-                EmailConfirmed = true,
-                NormalizedEmail = userData.Email.ToUpper(),
-                NormalizedUsername = userData.Name.ToUpper(),
-                CreatedAt = DateTime.UtcNow,
-                PasswordHash = Array.Empty<byte>(),
-                PasswordSalt = Array.Empty<byte>(),
-            };
+                var accountLinkingToken = await GenerateLinkingToken(user, userData.Id);
+                
+                return new GoogleSignInResult.GoogleSignInLinkRequired(accountLinkingToken);
+            }
+
+            var accountCompletionToken = await GenerateCompletionToken(userData.Email, userData.Id);
             
-            _dbContext.Users.Add(user);
-            await _dbContext.SaveChangesAsync();
+            return new GoogleSignInResult.GoogleSignInAccountSetupRequired(accountCompletionToken);
         }
         
         if (!user.EmailConfirmed)
@@ -351,12 +349,12 @@ public class AuthService : IAuthService
             SessionId = refreshTokenData.Session.Id
         });
 
-        return new LoginResponseDto
+        return new GoogleSignInResult.GoogleSignInSuccess(new LoginResponseDto
         {
             AccessToken = token,
             ExpiresIn = AccessTokenLifetime,
             User = user
-        };
+        });
     }
 
     /// <summary>
@@ -708,6 +706,91 @@ public class AuthService : IAuthService
 
         _logger.LogError("Failed to generate confirmation token after {MaxRetries} attempts", _maxRetries);
         throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate confirmation token");
+    }
+
+    // TODO: Add documentation for this method
+    private async Task<AccountCompletionToken> GenerateCompletionToken(string email, string googleId)
+    {
+        using var rng = RandomNumberGenerator.Create();
+
+        for (var retry = 0; retry < _maxRetries; retry++)
+        {
+            var tokenBytes = new byte[256];
+            rng.GetBytes(tokenBytes);
+            var token = Convert.ToBase64String(tokenBytes);
+
+            var accountCompletionToken = new AccountCompletionToken
+            {
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token,
+                Email = email,
+                GoogleId = googleId
+            };
+
+            try
+            {
+                _dbContext.UserTokens.Add(accountCompletionToken);
+                await _dbContext.SaveChangesAsync();
+
+                return accountCompletionToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate account completion token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate account completion token");
+    }
+
+    private async Task<AccountLinkingToken> GenerateLinkingToken(User user, string googleId)
+    {
+        using var rng = RandomNumberGenerator.Create();
+
+        for (var retry = 0; retry < _maxRetries; retry++)
+        {
+            var tokenBytes = new byte[256];
+            rng.GetBytes(tokenBytes);
+            var token = Convert.ToBase64String(tokenBytes);
+
+            var accountLinkingToken = new AccountLinkingToken()
+            {
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token,
+                GoogleId = googleId,
+                User = user
+            };
+
+            try
+            {
+                _dbContext.UserTokens.Add(accountLinkingToken);
+                await _dbContext.SaveChangesAsync();
+
+                return accountLinkingToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate account linking token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate account linking token");
     }
 
     /// <summary>

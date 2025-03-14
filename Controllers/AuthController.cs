@@ -6,6 +6,7 @@ using SnowrunnerMergerApi.Services;
 using SnowrunnerMergerApi.Services.Interfaces;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Net;
+using SnowrunnerMergerApi.Models.Auth.Google;
 
 namespace SnowrunnerMergerApi.Controllers
 {
@@ -135,9 +136,27 @@ namespace SnowrunnerMergerApi.Controllers
 
             var redirectUrl = authService.GetGoogleCallbackUrl();
 
-            var data = await authService.GoogleSignIn(code, redirectUrl);
+            var res = await authService.GoogleSignIn(code!, redirectUrl);
 
-            return Ok(data);
+            return res switch
+            {
+                GoogleSignInResult.GoogleSignInAccountSetupRequired googleSignInAccountSetupRequired => Ok(new
+                {
+                    tokenType = GoogleResTokenType.CompletionToken,
+                    data = googleSignInAccountSetupRequired.completionToken
+                }),
+                GoogleSignInResult.GoogleSignInLinkRequired googleSignInLinkRequired => Ok(new
+                {
+                    tokenType = GoogleResTokenType.LinkingToken,
+                    data = googleSignInLinkRequired.linkingToken,  
+                }),
+                GoogleSignInResult.GoogleSignInSuccess googleSignInSuccess => Ok(new
+                {
+                    tokenType = GoogleResTokenType.AccessToken,
+                    data = googleSignInSuccess.data
+                }),
+                _ => StatusCode(500)
+            };
         }
 
         [HttpPost("logout")]

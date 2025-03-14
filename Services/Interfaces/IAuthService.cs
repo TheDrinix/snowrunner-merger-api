@@ -56,7 +56,7 @@ public interface IAuthService
     /// <param name="code">The Google OAuth2 code used to exchange for an access token.</param>
     /// <param name="redirectUri">The redirect URI used to exchange the code.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
-    Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
+    Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri);
 
     /// <summary>
     ///     Retrieves the Google OAuth2 callback URL from the configuration.
