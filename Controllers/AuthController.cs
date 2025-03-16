@@ -100,19 +100,19 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpGet("google/signin")]
         [SwaggerOperation(Summary = "Initiates Google sign-in", Description = "Initiates Google sign-in flow")]
         [SwaggerResponse(StatusCodes.Status200OK, "Returns google signin url", typeof(string))]
-        public IActionResult GoogleSignin()
+        public IActionResult GoogleSignin([FromQuery] string? callbackUrl)
         {
             var credentials = authService.GetGoogleCredentials();
             
             var hashedState = authService.GenerateOauthStateToken();
 
-            var redirectUrl = authService.GetGoogleCallbackUrl();
+            var redirectUrl = callbackUrl ?? authService.GetGoogleCallbackUrl();
             
-            var scopes = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
+            const string scopes = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
             
             var url = new UriBuilder("https://accounts.google.com/o/oauth2/v2/auth")
             {
-                Query = $"client_id={credentials.ClientId}&response_type=code&redirect_uri={redirectUrl}&scope={scopes}&include_granted_scopes=true&prompt=consent&state={hashedState}"
+                Query = $"client_id={credentials.ClientId}&response_type=code&redirect_uri={redirectUrl}&scope={scopes}&include_granted_scopes=true&prompt=consent&state={WebUtility.UrlEncode(hashedState)}"
             }.ToString();
             
             return Ok(url);
@@ -122,7 +122,7 @@ namespace SnowrunnerMergerApi.Controllers
         [SwaggerOperation(Summary = "Handles Google sign-in callback", Description = "Handles Google sign-in callback and returns JWT token")]
         [SwaggerResponse(StatusCodes.Status200OK, "Sign-in successful", typeof(LoginResponseDto))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid state token or error during google sign-in")]
-        public async Task<IActionResult> GoogleSigninCallback(string? code, string state, string? error)
+        public async Task<IActionResult> GoogleSigninCallback(string? code, string state, string? error, string? callbackUrl)
         {
             if (!authService.ValidateOauthStateToken(state))
             {
@@ -134,7 +134,7 @@ namespace SnowrunnerMergerApi.Controllers
                 return BadRequest();
             }
 
-            var redirectUrl = authService.GetGoogleCallbackUrl();
+            var redirectUrl = callbackUrl ?? authService.GetGoogleCallbackUrl();
 
             var res = await authService.GoogleSignIn(code!, redirectUrl);
 
