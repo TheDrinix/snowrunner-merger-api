@@ -141,7 +141,7 @@ public class AuthService : IAuthService
     public async Task<LoginResponseDto> Login(LoginDto data)
     {
         var user = await _dbContext.Users
-            .FirstOrDefaultAsync(u => u.NormalizedEmail.Equals(data.Email, StringComparison.CurrentCultureIgnoreCase));
+            .FirstOrDefaultAsync(u => u.NormalizedEmail == data.Email.ToUpper());
         
         if (user is null)
         {
@@ -318,7 +318,7 @@ public class AuthService : IAuthService
         
         if (user is null)
         {
-            user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail.Equals(userData.Email, StringComparison.CurrentCultureIgnoreCase));
+            user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == userData.Email.ToUpper());
 
             if (user is not null)
             {
@@ -491,7 +491,7 @@ public class AuthService : IAuthService
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
-        var hashedToken = Convert.ToHexString(hash);
+        var hashedToken = Convert.ToBase64String(hash);
         
         _httpContextAccessor.HttpContext?.Response.Cookies.Append("oauth_state", token, new CookieOptions
         {
@@ -524,7 +524,7 @@ public class AuthService : IAuthService
         _httpContextAccessor.HttpContext?.Response.Cookies.Delete("oauth_state", new CookieOptions() { SameSite = _sameSiteMode, Secure = true });
         
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(cookie));
-        var token = Convert.ToHexString(hash);
+        var token = Convert.ToBase64String(hash);
         
         return state == token;
     }
