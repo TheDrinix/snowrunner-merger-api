@@ -1,8 +1,12 @@
 ﻿using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 using SnowrunnerMergerApi.Models.Saves;
 
 namespace SnowrunnerMergerApi.Models.Auth;
 
+[Index(nameof(NormalizedEmail))]
+[Index(nameof(Email), IsUnique = true)]
+[Index(nameof(GoogleId), IsUnique = true)]
 public class User
 {
     public Guid Id { get; set; }
@@ -18,6 +22,8 @@ public class User
     public byte[] PasswordSalt { get; set; }
     [JsonIgnore]
     public bool EmailConfirmed { get; set; }
+    [JsonIgnore]
+    public string? GoogleId { get; set; }
     public DateTime CreatedAt { get; set; }
     [JsonIgnore]
     public List<UserSession> UserSessions { get; set; }

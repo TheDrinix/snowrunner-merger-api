@@ -12,10 +12,12 @@ using SnowrunnerMergerApi.Exceptions;
 using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Models.Auth.Google;
+using SnowrunnerMergerApi.Models.Auth.Tokens;
 using SnowrunnerMergerApi.Services.Interfaces;
 using SameSiteMode = Microsoft.AspNetCore.Http.SameSiteMode;
 
 namespace SnowrunnerMergerApi.Services;
+
 public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
@@ -25,6 +27,7 @@ public class AuthService : IAuthService
     private readonly HttpClient _httpClient;
     private readonly IWebHostEnvironment _webHostEnvironment;
     private readonly SameSiteMode _sameSiteMode = SameSiteMode.Lax;
+    private readonly int _maxRetries = 5;
 
     private const int AccessTokenLifetime = 60 * 60 * 3; // 3 hours
 
@@ -56,7 +59,7 @@ public class AuthService : IAuthService
     /// Registers a new user using the provided data.
     /// </summary>
     /// <param name="data">A <see cref="RegisterDto"/> object containing the user's registration details.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the confirmation token for the user.</returns>
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the confirmation token for the user.</returns>
     /// <exception cref="HttpResponseException">
     /// Thrown with different HTTP status codes depending on the validation failure:
     /// <list type="bullet">
@@ -68,7 +71,7 @@ public class AuthService : IAuthService
     ///     </item>
     /// </list>
     /// </exception>
-    public async Task<UserToken> Register(RegisterDto data)
+    public async Task<AccountConfirmationToken> Register(RegisterDto data)
     {
         var passwordErrors = ValidatePassword(data.Password);
         if (passwordErrors.Count > 0)
@@ -278,7 +281,7 @@ public class AuthService : IAuthService
     /// <exception cref="HttpResponseException">
     ///     Thrown with an HTTP status code of HttpStatusCode.BadRequest (400) if the access token or user data is invalid.
     /// </exception>
-    public async Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri)
+    public async Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri)
     {
         var credentials = GetGoogleCredentials();
         
@@ -311,24 +314,27 @@ public class AuthService : IAuthService
         }
         
         
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == userData.Email.ToUpper());
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.GoogleId == userData.Id);
         
         if (user is null)
         {
-            user = new User()
+            user = await _dbContext.Users.FirstOrDefaultAsync(u => u.NormalizedEmail == userData.Email.ToUpper());
+
+            if (user is not null)
             {
-                Username = userData.FirstName,
-                Email = userData.Email,
-                EmailConfirmed = true,
-                NormalizedEmail = userData.Email.ToUpper(),
-                NormalizedUsername = userData.Name.ToUpper(),
-                CreatedAt = DateTime.UtcNow,
-                PasswordHash = Array.Empty<byte>(),
-                PasswordSalt = Array.Empty<byte>(),
-            };
+                if (user.GoogleId is not null)
+                {
+                    throw new HttpResponseException(HttpStatusCode.Conflict, "There's a different google account linked to this email");
+                }
+                
+                var accountLinkingToken = await GenerateLinkingToken(user, userData.Id);
+                
+                return new GoogleSignInResult.GoogleSignInLinkRequired(accountLinkingToken);
+            }
+
+            var accountCompletionToken = await GenerateCompletionToken(userData.Email, userData.Id);
             
-            _dbContext.Users.Add(user);
-            await _dbContext.SaveChangesAsync();
+            return new GoogleSignInResult.GoogleSignInAccountSetupRequired(accountCompletionToken);
         }
         
         if (!user.EmailConfirmed)
@@ -348,7 +354,105 @@ public class AuthService : IAuthService
             SessionId = refreshTokenData.Session.Id
         });
 
+        return new GoogleSignInResult.GoogleSignInSuccess(new LoginResponseDto
+        {
+            AccessToken = token,
+            ExpiresIn = AccessTokenLifetime,
+            User = user
+        });
+    }
+
+    public async Task<LoginResponseDto> LinkGoogleAccount(string linkingToken)
+    {
+        var linkingTokenEntry = await _dbContext.UserTokens
+            .OfType<AccountLinkingToken>()
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.Token == linkingToken);
+
+        if (linkingTokenEntry is null || linkingTokenEntry.ExpiresAt < DateTime.UtcNow)
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        var user = linkingTokenEntry.User;
+        user.GoogleId = linkingTokenEntry.GoogleId;
+        
+        _dbContext.Users.Update(user);
+        _dbContext.UserTokens.Remove(linkingTokenEntry);
+        
+        await _dbContext.SaveChangesAsync();
+        
+        var refreshTokenData = await GenerateRefreshToken(user);
+        
+        var token = GenerateJwt(new JwtData()
+        {
+            Id = user.Id, 
+            Username = user.Username, 
+            Email = user.Email,
+            SessionId = refreshTokenData.Session.Id
+        });
+        
         return new LoginResponseDto
+        {
+            AccessToken = token,
+            ExpiresIn = AccessTokenLifetime,
+            User = user
+        };
+    }
+
+    public async Task<LoginResponseDto> FinishAccountSetup(FinishAccountSetupDto data)
+    {
+        var completionTokenEntry = await _dbContext.UserTokens
+            .OfType<AccountCompletionToken>()
+            .FirstOrDefaultAsync(t => t.Token == data.CompletionToken);
+        
+        if (completionTokenEntry is null || completionTokenEntry.ExpiresAt < DateTime.UtcNow)
+        {
+            throw new HttpResponseException(HttpStatusCode.Unauthorized);
+        }
+        
+        var passwordErrors = ValidatePassword(data.Password);
+        
+        if (passwordErrors.Count > 0)
+        {
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "Invalid password", new Dictionary<string, object> {{"password", passwordErrors}});
+        }
+        
+        var passwordSalt = new byte[128 / 8];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(passwordSalt);
+        }
+        
+        var user = new User
+        {
+            Email = completionTokenEntry.Email,
+            GoogleId = completionTokenEntry.GoogleId,
+            Username = data.Username,
+            NormalizedUsername = data.Username.ToUpper(),
+            NormalizedEmail = completionTokenEntry.Email.ToUpper(),
+            PasswordHash = HashPassword(data.Password, passwordSalt),
+            PasswordSalt = passwordSalt,
+            CreatedAt = DateTime.UtcNow,
+            EmailConfirmed = true
+        };
+        
+        _dbContext.Users.Add(user);
+        _dbContext.UserTokens.Remove(completionTokenEntry);
+        
+        await _dbContext.SaveChangesAsync();
+        
+        var refreshTokenData = await GenerateRefreshToken(user);
+        
+        var token = GenerateJwt(new JwtData()
+        {
+            Id = user.Id, 
+            Username = user.Username, 
+            Email = user.Email,
+            SessionId = refreshTokenData.Session.Id
+        });
+
+        return new LoginResponseDto()
         {
             AccessToken = token,
             ExpiresIn = AccessTokenLifetime,
@@ -387,7 +491,7 @@ public class AuthService : IAuthService
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
-        var hashedToken = Convert.ToHexString(hash);
+        var hashedToken = Convert.ToBase64String(hash);
         
         _httpContextAccessor.HttpContext?.Response.Cookies.Append("oauth_state", token, new CookieOptions
         {
@@ -420,21 +524,21 @@ public class AuthService : IAuthService
         _httpContextAccessor.HttpContext?.Response.Cookies.Delete("oauth_state", new CookieOptions() { SameSite = _sameSiteMode, Secure = true });
         
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(cookie));
-        var token = Convert.ToHexString(hash);
+        var token = Convert.ToBase64String(hash);
         
         return state == token;
     }
-
+    
     /// <summary>
     ///     Verifies the email of a user using the provided confirmation token.
     /// </summary>
-    /// <param name="userId">The ID of the user whose email is being verified.</param>
     /// <param name="token">The confirmation token used to verify the email.</param>
     /// <returns>True if the email was successfully verified, false otherwise.</returns>
-    public async Task<bool> VerifyEmail(Guid userId, string token)
+    public async Task<bool> VerifyEmail(string token)
     {
         var confirmationToken = await _dbContext.UserTokens
-            .Where(t => t.Type == TokenType.AccountConfirmation && t.UserId == userId && t.Token == token)
+            .OfType<AccountConfirmationToken>()
+            .Where(t => t.Token == token)
             .Include(t => t.User)
             .FirstOrDefaultAsync();
         
@@ -513,8 +617,8 @@ public class AuthService : IAuthService
     ///     Generates a confirmation token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the confirmation token for.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the confirmation token on success, null otherwise.</returns>
-    public async Task<UserToken?> GenerateConfirmationToken(string email)
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the confirmation token on success, null otherwise.</returns>
+    public async Task<AccountConfirmationToken?> GenerateConfirmationToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
 
@@ -527,40 +631,50 @@ public class AuthService : IAuthService
     ///     Generates a password reset token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the password reset token for.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the password reset token on success, null otherwise.</returns>
-    public async Task<UserToken?> GeneratePasswordResetToken(string email)
+    /// <returns>A <see cref="PasswordResetToken"/> object containing the password reset token on success, null otherwise.</returns>
+    public async Task<PasswordResetToken?> GeneratePasswordResetToken(string email)
     {
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email);
 
         if (user is null) return null;
-
-        var tokens = _dbContext.UserTokens
-            .Where(t => t.UserId == user.Id && t.Type == TokenType.PasswordReset)
-            .Select(t => t.Token)
-            .ToHashSet();
-        var tokenBytes = new byte[128];
-
+        
         using var rng = RandomNumberGenerator.Create();
 
-        string token;
-        do
+        for (var retry = 0; retry < _maxRetries; retry++)
         {
+            var tokenBytes = new byte[256];
             rng.GetBytes(tokenBytes);
-            token = Convert.ToHexString(tokenBytes);
-        } while (tokens.Contains(token));
+            var token = Convert.ToBase64String(tokenBytes);
 
-        var passwordResetToken = new UserToken
-        {
-            User = user,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(30),
-            Token = token,
-            Type = TokenType.PasswordReset
-        };
-        
-        _dbContext.UserTokens.Add(passwordResetToken);
-        await _dbContext.SaveChangesAsync();
+            var passwordResetToken = new PasswordResetToken
+            {
+                UserId = user.Id,
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token
+            };
 
-        return passwordResetToken;
+            try
+            {
+                _dbContext.UserTokens.Add(passwordResetToken);
+                await _dbContext.SaveChangesAsync();
+
+                return passwordResetToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate password reset token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate password reset token");
     }
 
     /// <summary>
@@ -573,10 +687,10 @@ public class AuthService : IAuthService
     public async Task ResetPassword(ResetPasswordDto data)
     {
         var tokenEntry = await _dbContext.UserTokens
-            .Where(t => t.Type == TokenType.PasswordReset && t.UserId == data.UserId && t.Token == data.Token)
+            .OfType<PasswordResetToken>()
             .Include(t => t.User)
-            .ThenInclude(u => u.UserSessions)
-            .FirstOrDefaultAsync();
+            .ThenInclude(user => user.UserSessions)
+            .FirstOrDefaultAsync(t => t.Token == data.Token);
         
         if (tokenEntry is null || tokenEntry.ExpiresAt < DateTime.UtcNow)
         {
@@ -651,42 +765,135 @@ public class AuthService : IAuthService
     /// Generates a confirmation token for the specified user.
     /// </summary>
     /// <param name="user">The user for whom the confirmation token is generated.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the generated token.</returns>
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the generated token.</returns>
     /// <remarks>
     /// This method generates a unique confirmation token for the user and stores it in the database.
     /// The token is valid for 1 hour from the time of generation.
     /// </remarks>
-    private async Task<UserToken> GenerateConfirmationToken(User user)
+    private async Task<AccountConfirmationToken> GenerateConfirmationToken(User user)
     {
-        var tokens = _dbContext.UserTokens
-            .Where(t => t.UserId == user.Id && t.Type == TokenType.AccountConfirmation)
-            .Select(t => t.Token)
-            .ToHashSet();
-        
-        var tokenBytes = new byte[128];
-
         using var rng = RandomNumberGenerator.Create();
 
-        string token;
-        do
+        for (var retry = 0; retry < _maxRetries; retry++)
         {
+            var tokenBytes = new byte[256];
             rng.GetBytes(tokenBytes);
-            token = Convert.ToHexString(tokenBytes);
-        } while(tokens.Contains(token));
-        
-        
-        var userConfirmationToken = new UserToken
-        {
-            UserId = user.Id,
-            Token = Convert.ToHexString(tokenBytes),
-            ExpiresAt = DateTime.UtcNow.AddHours(1),
-            Type = TokenType.AccountConfirmation
-        };
-        
-        _dbContext.UserTokens.Add(userConfirmationToken);
-        await _dbContext.SaveChangesAsync();
+            var token = Convert.ToBase64String(tokenBytes);
 
-        return userConfirmationToken;
+            var userConfirmationToken = new AccountConfirmationToken
+            {
+                UserId = user.Id,
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token
+            };
+
+            try
+            {
+                _dbContext.UserTokens.Add(userConfirmationToken);
+                await _dbContext.SaveChangesAsync();
+
+                return userConfirmationToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate confirmation token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate confirmation token");
+    }
+
+    // TODO: Add documentation for this method
+    private async Task<AccountCompletionToken> GenerateCompletionToken(string email, string googleId)
+    {
+        using var rng = RandomNumberGenerator.Create();
+
+        for (var retry = 0; retry < _maxRetries; retry++)
+        {
+            var tokenBytes = new byte[256 / 8];
+            rng.GetBytes(tokenBytes);
+            var token = Convert.ToBase64String(tokenBytes);
+
+            var accountCompletionToken = new AccountCompletionToken
+            {
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token,
+                Email = email,
+                GoogleId = googleId
+            };
+
+            try
+            {
+                _dbContext.UserTokens.Add(accountCompletionToken);
+                await _dbContext.SaveChangesAsync();
+
+                return accountCompletionToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate account completion token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate account completion token");
+    }
+
+    private async Task<AccountLinkingToken> GenerateLinkingToken(User user, string googleId)
+    {
+        using var rng = RandomNumberGenerator.Create();
+
+        for (var retry = 0; retry < _maxRetries; retry++)
+        {
+            var tokenBytes = new byte[256 / 8];
+            rng.GetBytes(tokenBytes);
+            var token = Convert.ToBase64String(tokenBytes);
+
+            var accountLinkingToken = new AccountLinkingToken()
+            {
+                ExpiresAt = DateTime.UtcNow.AddHours(1),
+                Token = token,
+                GoogleId = googleId,
+                User = user
+            };
+
+            try
+            {
+                _dbContext.UserTokens.Add(accountLinkingToken);
+                await _dbContext.SaveChangesAsync();
+
+                return accountLinkingToken;
+            }
+            catch (DbUpdateException e)
+            {
+                if(e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+                {
+                    _logger.LogWarning("Token collision detected (retry {Retry}). Generating a new token.", retry + 1);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        _logger.LogError("Failed to generate account linking token after {MaxRetries} attempts", _maxRetries);
+        throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate account linking token");
     }
 
     /// <summary>

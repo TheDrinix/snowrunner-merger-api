@@ -237,10 +237,14 @@ public class SavesService : ISavesService
         foreach (var file in mapDataFiles)
         {
             var currentFileName = Path.GetFileName(file);
+            if (storedSaveData.SaveNumber > 0)
+            {
+                currentFileName = currentFileName[2..];
+            }
+            
             var filePrefix = data.OutputSaveNumber > 0 ? data.OutputSaveNumber.ToString() + '_' : "";
-            var outputFileName = data.SaveNumber == 0
-                ? filePrefix + currentFileName
-                : filePrefix + currentFileName[2..];
+            
+            var outputFileName = filePrefix + currentFileName;
             var outputFilePath = Path.Join(outputDirectory, outputFileName);
             
             File.Copy(file, outputFilePath, overwrite: true);
@@ -375,7 +379,7 @@ public class SavesService : ISavesService
         var outputSaveData = storedSave.SaveData;
         outputSaveData.SslValue.persistentProfileData = uploadedProfileData;
         outputSaveData.SslValue.gameStat = uploadedSave.SaveData.SslValue.gameStat;
-        outputSaveData.SslValue.garagesData = uploadedSave.SaveData.SslValue.garagesData;
+        // outputSaveData.SslValue.garagesData = uploadedSave.SaveData.SslValue.garagesData;
         outputSaveData.SslValue.waypoints = uploadedSave.SaveData.SslValue.waypoints;
         outputSaveData.SslValue.saveId = outputSaveNumber;
         

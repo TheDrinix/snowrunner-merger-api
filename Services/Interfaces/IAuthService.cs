@@ -1,6 +1,7 @@
 using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Models.Auth.Google;
+using SnowrunnerMergerApi.Models.Auth.Tokens;
 
 namespace SnowrunnerMergerApi.Services.Interfaces;
 
@@ -10,8 +11,8 @@ public interface IAuthService
     /// Registers a new user using the provided data.
     /// </summary>
     /// <param name="data">A <see cref="RegisterDto"/> object containing the user's registration details.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the confirmation token for the user.</returns>
-    Task<UserToken> Register(RegisterDto data);
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the confirmation token for the user.</returns>
+    Task<AccountConfirmationToken> Register(RegisterDto data);
     /// <summary>
     /// Attempts to log in a user with the provided credentials.
     /// </summary>
@@ -55,7 +56,11 @@ public interface IAuthService
     /// <param name="code">The Google OAuth2 code used to exchange for an access token.</param>
     /// <param name="redirectUri">The redirect URI used to exchange the code.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
-    Task<LoginResponseDto> GoogleSignIn(string code, string redirectUri);
+    Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri);
+
+    // TODO: Add documentation
+    Task<LoginResponseDto> LinkGoogleAccount(string linkingToken);
+    Task<LoginResponseDto> FinishAccountSetup(FinishAccountSetupDto data);
 
     /// <summary>
     ///     Retrieves the Google OAuth2 callback URL from the configuration.
@@ -65,10 +70,9 @@ public interface IAuthService
     /// <summary>
     ///     Verifies the email of a user using the provided confirmation token.
     /// </summary>
-    /// <param name="userId">The ID of the user whose email is being verified.</param>
     /// <param name="token">The confirmation token used to verify the email.</param>
     /// <returns>True if the email was successfully verified, false otherwise.</returns>
-    Task<bool> VerifyEmail(Guid userId, string token);
+    Task<bool> VerifyEmail(string token);
     /// <summary>
     ///     Logs out the current user by removing the session from the database and deleting the refresh token cookie.
     /// </summary>
@@ -77,14 +81,14 @@ public interface IAuthService
     ///     Generates a confirmation token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the confirmation token for.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the confirmation token on success, null otherwise.</returns>
-    Task<UserToken?> GenerateConfirmationToken(string email);
+    /// <returns>A <see cref="AccountConfirmationToken"/> object containing the confirmation token on success, null otherwise.</returns>
+    Task<AccountConfirmationToken?> GenerateConfirmationToken(string email);
     /// <summary>
     ///     Generates a password reset token for the user with the provided email.
     /// </summary>
     /// <param name="email">The email of the user to generate the password reset token for.</param>
-    /// <returns>A <see cref="UserToken"/> object containing the password reset token on success, null otherwise.</returns>
-    Task<UserToken?> GeneratePasswordResetToken(string email);
+    /// <returns>A <see cref="PasswordResetToken"/> object containing the password reset token on success, null otherwise.</returns>
+    Task<PasswordResetToken?> GeneratePasswordResetToken(string email);
     /// <summary>
     ///     Resets the password of a user using the provided data.
     /// </summary>

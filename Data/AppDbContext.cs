@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ValueGeneration;
 using SnowrunnerMergerApi.Models.Auth;
+using SnowrunnerMergerApi.Models.Auth.Tokens;
 using SnowrunnerMergerApi.Models.Saves;
 
 namespace SnowrunnerMergerApi.Data;
@@ -59,11 +60,30 @@ public class AppDbContext(DbContextOptions<AppDbContext> opt) : DbContext(opt)
 
         modelBuilder
             .Entity<UserToken>()
-            .HasKey(t => new { t.UserId, t.Token, t.Type })
-            .HasName("user_token_pkey");
-
+            .HasDiscriminator<string>("TokenType")
+            .HasValue<AccountConfirmationToken>("AccountConfirmation")
+            .HasValue<PasswordResetToken>("PasswordReset")
+            .HasValue<AccountLinkingToken>("AccountLinking")
+            .HasValue<AccountCompletionToken>("AccountCompletion");
+        
         modelBuilder
-            .Entity<UserToken>()
+            .Entity<AccountLinkingToken>()
+            .HasOne(t => t.User)
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .HasPrincipalKey(u => u.Id)
+            .OnDelete(DeleteBehavior.Cascade);
+        
+        modelBuilder
+            .Entity<PasswordResetToken>()
+            .HasOne(t => t.User)
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .HasPrincipalKey(u => u.Id)
+            .OnDelete(DeleteBehavior.Cascade);
+        
+        modelBuilder
+            .Entity<AccountConfirmationToken>()
             .HasOne(t => t.User)
             .WithMany()
             .HasForeignKey(t => t.UserId)

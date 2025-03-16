@@ -5,6 +5,8 @@ using SnowrunnerMergerApi.Models.Auth.Dtos;
 using SnowrunnerMergerApi.Services;
 using SnowrunnerMergerApi.Services.Interfaces;
 using Swashbuckle.AspNetCore.Annotations;
+using System.Net;
+using SnowrunnerMergerApi.Models.Auth.Google;
 
 namespace SnowrunnerMergerApi.Controllers
 {
@@ -32,14 +34,30 @@ namespace SnowrunnerMergerApi.Controllers
         {
             var confirmationToken = await authService.Register(data);
             
-            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
+            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?token={WebUtility.UrlEncode(confirmationToken.Token)}");
             
-            await emailSender.SendEmailAsync(data.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
+            var html = $"""
+                        <html>
+                            <body>        
+                                <h2>Verify your email</h2>
+                                <p>
+                                    Please verify your email by clicking <a href="{confirmationUrl}">here</a>.
+                                </p>
+                                <p>The link will be valid for an hour.</p>
+                                <p>If you did not register, please ignore this email.</p>
+                            </body>
+                        </html>
+                      """;
+            
+            await emailSender.SendEmailAsync(data.Email, "Verify your email", html);
 
             return Created();
         }
 
         [HttpGet("refresh")]
+        [SwaggerOperation(Summary = "Gets long-lived refresh token", Description = "Gets long-lived refresh token for a user to use in frontend (desktop app)")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Refresh token retrieved successfully", typeof(RefreshTokenDto))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized)]
         [Authorize]
         public async Task<ActionResult<RefreshTokenDto>> GetLongLivedRefreshToken()
         {
@@ -74,7 +92,7 @@ namespace SnowrunnerMergerApi.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid token")]
         public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailDto data)
         {
-            var verified = await authService.VerifyEmail(data.UserId, data.Token);
+            var verified = await authService.VerifyEmail(data.Token);
 
             return verified ? Ok() : BadRequest();
         }
@@ -82,19 +100,19 @@ namespace SnowrunnerMergerApi.Controllers
         [HttpGet("google/signin")]
         [SwaggerOperation(Summary = "Initiates Google sign-in", Description = "Initiates Google sign-in flow")]
         [SwaggerResponse(StatusCodes.Status200OK, "Returns google signin url", typeof(string))]
-        public IActionResult GoogleSignin()
+        public IActionResult GoogleSignin([FromQuery] string? callbackUrl)
         {
             var credentials = authService.GetGoogleCredentials();
             
             var hashedState = authService.GenerateOauthStateToken();
 
-            var redirectUrl = authService.GetGoogleCallbackUrl();
+            var redirectUrl = callbackUrl ?? authService.GetGoogleCallbackUrl();
             
-            var scopes = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
+            const string scopes = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
             
             var url = new UriBuilder("https://accounts.google.com/o/oauth2/v2/auth")
             {
-                Query = $"client_id={credentials.ClientId}&response_type=code&redirect_uri={redirectUrl}&scope={scopes}&include_granted_scopes=true&prompt=consent&state={hashedState}"
+                Query = $"client_id={credentials.ClientId}&response_type=code&redirect_uri={redirectUrl}&scope={scopes}&include_granted_scopes=true&prompt=consent&state={WebUtility.UrlEncode(hashedState)}"
             }.ToString();
             
             return Ok(url);
@@ -104,7 +122,7 @@ namespace SnowrunnerMergerApi.Controllers
         [SwaggerOperation(Summary = "Handles Google sign-in callback", Description = "Handles Google sign-in callback and returns JWT token")]
         [SwaggerResponse(StatusCodes.Status200OK, "Sign-in successful", typeof(LoginResponseDto))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid state token or error during google sign-in")]
-        public async Task<IActionResult> GoogleSigninCallback(string? code, string state, string? error)
+        public async Task<IActionResult> GoogleSigninCallback(string? code, string state, string? error, string? callbackUrl)
         {
             if (!authService.ValidateOauthStateToken(state))
             {
@@ -116,11 +134,45 @@ namespace SnowrunnerMergerApi.Controllers
                 return BadRequest();
             }
 
-            var redirectUrl = authService.GetGoogleCallbackUrl();
+            var redirectUrl = callbackUrl ?? authService.GetGoogleCallbackUrl();
 
-            var data = await authService.GoogleSignIn(code, redirectUrl);
+            var res = await authService.GoogleSignIn(code!, redirectUrl);
 
-            return Ok(data);
+            return res switch
+            {
+                GoogleSignInResult.GoogleSignInAccountSetupRequired googleSignInAccountSetupRequired => Ok(new
+                {
+                    tokenType = GoogleResTokenType.CompletionToken,
+                    data = googleSignInAccountSetupRequired.completionToken
+                }),
+                GoogleSignInResult.GoogleSignInLinkRequired googleSignInLinkRequired => Ok(new
+                {
+                    tokenType = GoogleResTokenType.LinkingToken,
+                    data = googleSignInLinkRequired.linkingToken,  
+                }),
+                GoogleSignInResult.GoogleSignInSuccess googleSignInSuccess => Ok(new
+                {
+                    tokenType = GoogleResTokenType.AccessToken,
+                    data = googleSignInSuccess.data
+                }),
+                _ => StatusCode(500)
+            };
+        }
+
+        [HttpPost("google/link-account")]
+        public async Task<IActionResult> LinkAccount([FromBody] LinkAccountDto data)
+        {
+            var accessTokenData = await authService.LinkGoogleAccount(data.LinkingToken);
+            
+            return Ok(accessTokenData);
+        }
+        
+        [HttpPost("google/finish-account-setup")]
+        public async Task<IActionResult> FinishAccountSetup([FromBody] FinishAccountSetupDto data)
+        {
+            var accessTokenData = await authService.FinishAccountSetup(data);
+            
+            return Ok(accessTokenData);
         }
 
         [HttpPost("logout")]
@@ -146,9 +198,22 @@ namespace SnowrunnerMergerApi.Controllers
                 return NoContent();
             }
             
-            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?user-id={confirmationToken.UserId}&token={confirmationToken.Token}");
+            var confirmationUrl = new Uri($"{Request.Headers.Origin}/auth/confirm-email?token={WebUtility.UrlEncode(confirmationToken.Token)}");
             
-            await emailSender.SendEmailAsync(body.Email, "Verify your email", $"Please verify your email by clicking <a href=\"{confirmationUrl}\">here</a>.");
+            var html = $"""
+                          <html>
+                              <body>        
+                                  <h2>Verify your email</h2>
+                                  <p>
+                                      Please verify your email by clicking <a href="{confirmationUrl}">here</a>.
+                                  </p>
+                                  <p>The link will be valid for an hour.</p>
+                                  <p>If you did not register, please ignore this email.</p>
+                              </body>
+                          </html>
+                        """;
+            
+            await emailSender.SendEmailAsync(body.Email, "Verify your email", html);
             
             return NoContent();
         }
@@ -170,7 +235,7 @@ namespace SnowrunnerMergerApi.Controllers
                 origin = Request.Headers.Origin;
             }
             
-            var resetUrl = new Uri($"{origin}/auth/reset-password?user-id={resetToken.UserId}&token={resetToken.Token}");
+            var resetUrl = new Uri($"{origin}/auth/reset-password?token={WebUtility.UrlEncode(resetToken.Token)}");
 
             var html = $"""
                             <html>

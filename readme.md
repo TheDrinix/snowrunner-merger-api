@@ -23,6 +23,7 @@ This is the backend API for the Snowrunner Merger project. For the frontend appl
 - Google OAuth 2.0 credentials
     - Client ID
     - Client Secret
+- SMTP Credentials
 - Docker (for deployment)
 
 ## Configuration
@@ -55,7 +56,8 @@ Configure your SMTP server settings in `appsettings.json` or using environment v
     "Host": "your_host",
     "Port": "host_port",
     "Username": "your_smtp_username",
-    "Password": "your_smtp_password"
+    "Password": "your_smtp_password",
+    "Address": "your_email_address"
   }
 }
 ```
