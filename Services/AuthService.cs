@@ -487,6 +487,24 @@ public class AuthService : IAuthService
     }
 
     /// <summary>
+    ///     Attempts to unlink the Google account from the current user.
+    /// </summary>
+    public async Task UnlinkGoogleAccount()
+    {
+        var principal = _httpContextAccessor.HttpContext?.User;
+        var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+        
+        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Id == Guid.Parse(userId));
+
+        if (user is null) return;
+        
+        user.GoogleId = null;
+        
+        _dbContext.Users.Update(user);
+        await _dbContext.SaveChangesAsync();
+    }
+
+    /// <summary>
     ///     Retrieves the Google OAuth2 callback URL from the configuration.
     /// </summary>
     /// <returns>The Google OAuth2 callback URL.</returns>

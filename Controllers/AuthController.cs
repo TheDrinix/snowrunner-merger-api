@@ -181,6 +181,17 @@ namespace SnowrunnerMergerApi.Controllers
             
             return Ok(accessTokenData);
         }
+        
+        [HttpPost("google/unlink")]
+        [Authorize]
+        [SwaggerOperation(Summary = "Unlinks Google account", Description = "Unlinks Google account from the current user")]
+        [SwaggerResponse(StatusCodes.Status204NoContent, "Account unlinked successfully")]
+        public async Task<IActionResult> UnlinkGoogleAccount()
+        {
+            await authService.UnlinkGoogleAccount();
+            
+            return NoContent();
+        }
 
         [HttpPost("logout")]
         [Authorize]

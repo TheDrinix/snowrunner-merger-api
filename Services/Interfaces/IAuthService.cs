@@ -73,6 +73,11 @@ public interface IAuthService
     Task<LoginResponseDto> FinishAccountSetup(FinishAccountSetupDto data);
 
     /// <summary>
+    ///     Attempts to unlink the Google account from the current user.
+    /// </summary>
+    Task UnlinkGoogleAccount();
+
+    /// <summary>
     ///     Retrieves the Google OAuth2 callback URL from the configuration.
     /// </summary>
     /// <returns>The Google OAuth2 callback URL.</returns>
