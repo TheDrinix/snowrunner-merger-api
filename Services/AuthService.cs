@@ -362,6 +362,15 @@ public class AuthService : IAuthService
         });
     }
 
+    /// <summary>
+    ///     Attempts to link a Google account to an existing account.
+    ///     User gets signed in if the linking is successful.
+    /// </summary>
+    /// <param name="linkingToken">The linking token used to link the Google account.</param>
+    /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the linking token is invalid.
+    /// </exception>
     public async Task<LoginResponseDto> LinkGoogleAccount(string linkingToken)
     {
         var linkingTokenEntry = await _dbContext.UserTokens
@@ -400,6 +409,23 @@ public class AuthService : IAuthService
         };
     }
 
+    /// <summary>
+    ///     Attempts to finish the account for a user using the provided data.
+    ///     User gets signed in if the account setup is successful.
+    /// </summary>
+    /// <param name="data">A <see cref="FinishAccountSetupDto"/> object containing the user's account details.</param>
+    /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with different HTTP status codes depending on the validation failure:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             HttpStatusCode.Unauthorized (401): If the completion token is invalid or expired.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.BadRequest (400): If the password does not meet the validation criteria.
+    ///         </item>
+    ///     </list>
+    /// </exception>
     public async Task<LoginResponseDto> FinishAccountSetup(FinishAccountSetupDto data)
     {
         var completionTokenEntry = await _dbContext.UserTokens
@@ -811,7 +837,19 @@ public class AuthService : IAuthService
         throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate confirmation token");
     }
 
-    // TODO: Add documentation for this method
+    /// <summary>
+    ///     Generates an account completion token for the specified email and Google ID.
+    /// </summary>
+    /// <param name="email">
+    ///     The email of the user for whom the account completion token is generated.
+    /// </param>
+    /// <param name="googleId">
+    ///     The Google ID of the user for whom the account completion token is generated.
+    /// </param>
+    /// <returns>A <see cref="AccountCompletionToken"/> object containing the generated token.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.InternalServerError (500) if the token cannot be generated.
+    /// </exception>
     private async Task<AccountCompletionToken> GenerateCompletionToken(string email, string googleId)
     {
         using var rng = RandomNumberGenerator.Create();
@@ -853,7 +891,16 @@ public class AuthService : IAuthService
         _logger.LogError("Failed to generate account completion token after {MaxRetries} attempts", _maxRetries);
         throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate account completion token");
     }
-
+    
+    /// <summary>
+    ///     Generates an account linking token for the specified user and Google ID.
+    /// </summary>
+    /// <param name="user">The user for whom the account linking token is generated.</param>
+    /// <param name="googleId">The Google ID to link to the user.</param>
+    /// <returns>A <see cref="AccountLinkingToken"/> object containing the generated token.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with an HTTP status code of HttpStatusCode.InternalServerError (500) if the token cannot be generated.
+    /// </exception>
     private async Task<AccountLinkingToken> GenerateLinkingToken(User user, string googleId)
     {
         using var rng = RandomNumberGenerator.Create();
@@ -900,6 +947,8 @@ public class AuthService : IAuthService
     ///     Generates a refresh token for the specified user.
     /// </summary>
     /// <param name="user">The user for whom the refresh token is generated.</param>
+    /// <param name="extendedLifespan">A boolean indicating whether the refresh token should have an extended lifespan.</param>
+    /// <param name="storeInCookie">A boolean indicating whether the refresh token should be stored in a cookie.</param>
     /// <returns>A <see cref="RefreshTokenData"/> object containing the generated refresh token.</returns>
     private async Task<RefreshTokenData> GenerateRefreshToken(User user, bool extendedLifespan = false, bool storeInCookie = true)
     {

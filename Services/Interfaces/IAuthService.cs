@@ -57,9 +57,19 @@ public interface IAuthService
     /// <param name="redirectUri">The redirect URI used to exchange the code.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri);
-
-    // TODO: Add documentation
+    /// <summary>
+    ///     Attempts to link a Google account to an existing account.
+    ///     User gets signed in if the linking is successful.
+    /// </summary>
+    /// <param name="linkingToken">The linking token used to link the Google account.</param>
+    /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     Task<LoginResponseDto> LinkGoogleAccount(string linkingToken);
+    /// <summary>
+    ///     Attempts to finish the account for a user using the provided data.
+    ///     User gets signed in if the account setup is successful.
+    /// </summary>
+    /// <param name="data">A <see cref="FinishAccountSetupDto"/> object containing the user's account details.</param>
+    /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     Task<LoginResponseDto> FinishAccountSetup(FinishAccountSetupDto data);
 
     /// <summary>

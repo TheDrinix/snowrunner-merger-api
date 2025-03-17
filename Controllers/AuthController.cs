@@ -160,6 +160,9 @@ namespace SnowrunnerMergerApi.Controllers
         }
 
         [HttpPost("google/link-account")]
+        [SwaggerOperation(Summary = "Links Google account", Description = "Links Google account to an existing user account")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Account linked successfully and logs user in", typeof(LoginResponseDto))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid or expired linking token")]
         public async Task<IActionResult> LinkAccount([FromBody] LinkAccountDto data)
         {
             var accessTokenData = await authService.LinkGoogleAccount(data.LinkingToken);
@@ -168,6 +171,10 @@ namespace SnowrunnerMergerApi.Controllers
         }
         
         [HttpPost("google/finish-account-setup")]
+        [SwaggerOperation(Summary = "Finishes Google account setup", Description = "Finishes Google account setup for a new user")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Account setup finished successfully and logs user in", typeof(LoginResponseDto))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid account data or password requirements not met")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Invalid or expired account completion token")]
         public async Task<IActionResult> FinishAccountSetup([FromBody] FinishAccountSetupDto data)
         {
             var accessTokenData = await authService.FinishAccountSetup(data);
