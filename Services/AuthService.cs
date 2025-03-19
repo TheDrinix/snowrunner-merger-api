@@ -283,36 +283,7 @@ public class AuthService : IAuthService
     /// </exception>
     public async Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri)
     {
-        var credentials = GetGoogleCredentials();
-        
-        // Send http request to exchange code for token
-        var url = new UriBuilder("https://oauth2.googleapis.com/token")
-        .ToString();
-        
-        var body = new
-        {
-            client_id = credentials.ClientId,
-            client_secret = credentials.ClientSecret,
-            code = code,
-            grant_type = "authorization_code",
-            redirect_uri = redirectUri
-        }.ToJson();
-        
-        var response = await _httpClient.PostAsync(url, new StringContent(body, Encoding.UTF8, "application/json"));
-        var data = await response.Content.ReadFromJsonAsync<GoogleTokenData>();
-        
-        if (data is null || string.IsNullOrEmpty(data.AccessToken))
-        {
-            throw new HttpResponseException(HttpStatusCode.BadRequest);
-        }
-        
-        var userData = await _httpClient.GetFromJsonAsync<GoogleUserData>($"https://www.googleapis.com/oauth2/v2/userinfo?access_token={data.AccessToken}");
-        
-        if (userData is null)
-        {
-            throw new HttpResponseException(HttpStatusCode.BadRequest);
-        }
-        
+        var userData = await GetGoogleAccountData(code, redirectUri);
         
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.GoogleId == userData.Id);
         
@@ -369,7 +340,18 @@ public class AuthService : IAuthService
     /// <param name="linkingToken">The linking token used to link the Google account.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     /// <exception cref="HttpResponseException">
-    ///     Thrown with an HTTP status code of HttpStatusCode.Unauthorized (401) if the linking token is invalid.
+    ///     Thrown with different HTTP status codes depending on the validation failure:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             HttpStatusCode.BadRequest (400): If the Google account is already linked to another user.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.Unauthorized (401): If the linking token is invalid or expired.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.Conflict (409): If the user already has a linked Google account.
+    ///         </item>
+    ///     </list>
     /// </exception>
     public async Task<LoginResponseDto> LinkGoogleAccount(string linkingToken)
     {
@@ -383,13 +365,8 @@ public class AuthService : IAuthService
             throw new HttpResponseException(HttpStatusCode.Unauthorized);
         }
         
-        var user = linkingTokenEntry.User;
-        user.GoogleId = linkingTokenEntry.GoogleId;
-        
-        _dbContext.Users.Update(user);
         _dbContext.UserTokens.Remove(linkingTokenEntry);
-        
-        await _dbContext.SaveChangesAsync();
+        var user = await LinkGoogleAccount(linkingTokenEntry.GoogleId, linkingTokenEntry.User);
         
         var refreshTokenData = await GenerateRefreshToken(user);
         
@@ -408,6 +385,38 @@ public class AuthService : IAuthService
             User = user
         };
     }
+
+    /// <summary>
+    ///     Attempts to link a Google account to an existing account using the provided Google OAuth2 code.
+    /// </summary>
+    /// <param name="user">The user to link the Google account to.</param>
+    /// <param name="code">The Google OAuth2 code used to exchange for an access token.</param>
+    /// <param name="redirectUri">The OAuth redirect url.</param>
+    /// <returns>The updated user.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with different HTTP status codes depending on the validation failure:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             HttpStatusCode.BadRequest (400): If the Google account is already linked to another user
+    ///             or there was an error trying to receive the google account data.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.Conflict (409): If the user already has a linked Google account.
+    ///         </item>
+    ///     </list>
+    /// </exception>
+    public async Task<User> LinkGoogleAccount(User user, string code, string redirectUri)
+    {
+        var googleData = await GetGoogleAccountData(code, redirectUri);
+
+        if (googleData is null)
+        {
+            throw new HttpResponseException(HttpStatusCode.BadRequest);
+        }
+
+        return await LinkGoogleAccount(googleData.Id, user);
+    }
+    
 
     /// <summary>
     ///     Attempts to finish the account for a user using the provided data.
@@ -908,6 +917,80 @@ public class AuthService : IAuthService
 
         _logger.LogError("Failed to generate account completion token after {MaxRetries} attempts", _maxRetries);
         throw new HttpResponseException(HttpStatusCode.InternalServerError, "Failed to generate account completion token");
+    }
+    
+    /// <summary>
+    ///     Links the Google account to the user.
+    /// </summary>
+    /// <param name="googleId">The Google ID of the user to link the account to.</param>
+    /// <param name="user">The user to link the Google account to.</param>
+    /// <returns>The updated user.</returns>
+    /// <exception cref="HttpResponseException">
+    ///     Thrown with different HTTP status codes depending on the validation failure:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             HttpStatusCode.BadRequest (400): If the Google account is already linked to another user.
+    ///         </item>
+    ///         <item>
+    ///             HttpStatusCode.Conflict (409): If the user already has a linked Google account.
+    ///         </item>
+    ///     </list>
+    /// </exception>
+    private async Task<User> LinkGoogleAccount(string googleId, User user)
+    {
+        if (user.GoogleId is not null)
+        {
+            throw new HttpResponseException(HttpStatusCode.Conflict, "User already has a linked Google account");
+        }
+
+        try
+        {
+            user.GoogleId = googleId;
+
+            _dbContext.Users.Update(user);
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException e)
+        {
+            if (e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
+            {
+                throw new HttpResponseException(HttpStatusCode.BadRequest, "The google account is already linked to another user");
+            }
+
+            throw;
+        }
+
+        return user;
+    }
+
+    private async Task<GoogleUserData?> GetGoogleAccountData(string code, string redirectUri)
+    {
+        var credentials = GetGoogleCredentials();
+        
+        // Send http request to exchange code for token
+        var url = new UriBuilder("https://oauth2.googleapis.com/token")
+            .ToString();
+        
+        var body = new
+        {
+            client_id = credentials.ClientId,
+            client_secret = credentials.ClientSecret,
+            code = code,
+            grant_type = "authorization_code",
+            redirect_uri = redirectUri
+        }.ToJson();
+        
+        var response = await _httpClient.PostAsync(url, new StringContent(body, Encoding.UTF8, "application/json"));
+        var data = await response.Content.ReadFromJsonAsync<GoogleTokenData>();
+        
+        if (data is null || string.IsNullOrEmpty(data.AccessToken))
+        {
+            return null;
+        }
+        
+        var userData = await _httpClient.GetFromJsonAsync<GoogleUserData>($"https://www.googleapis.com/oauth2/v2/userinfo?access_token={data.AccessToken}");
+
+        return userData;
     }
     
     /// <summary>

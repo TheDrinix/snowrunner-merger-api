@@ -58,12 +58,20 @@ public interface IAuthService
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     Task<GoogleSignInResult> GoogleSignIn(string code, string redirectUri);
     /// <summary>
-    ///     Attempts to link a Google account to an existing account.
+    ///     Attempts to link a Google account to an existing account using a linking token.
     ///     User gets signed in if the linking is successful.
     /// </summary>
     /// <param name="linkingToken">The linking token used to link the Google account.</param>
     /// <returns>A <see cref="LoginResponseDto"/> object containing the access token, expiration time, and user information on success.</returns>
     Task<LoginResponseDto> LinkGoogleAccount(string linkingToken);
+    /// <summary>
+    ///     Attempts to link a Google account to an existing account using the provided Google OAuth2 code.
+    /// </summary>
+    /// <param name="user">The user to link the Google account to.</param>
+    /// <param name="code">The Google OAuth2 code used to exchange for an access token.</param>
+    /// <param name="redirectUri">The OAuth redirect url.</param>
+    /// <returns>The updated user.</returns>
+    Task<User> LinkGoogleAccount(User user, string code, string redirectUri);
     /// <summary>
     ///     Attempts to finish the account for a user using the provided data.
     ///     User gets signed in if the account setup is successful.

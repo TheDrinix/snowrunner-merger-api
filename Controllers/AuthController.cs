@@ -6,13 +6,14 @@ using SnowrunnerMergerApi.Services;
 using SnowrunnerMergerApi.Services.Interfaces;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Net;
+using SnowrunnerMergerApi.Models.Auth;
 using SnowrunnerMergerApi.Models.Auth.Google;
 
 namespace SnowrunnerMergerApi.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AuthController(IAuthService authService, IEmailSender emailSender) : ControllerBase
+    public class AuthController(IAuthService authService, IUserService userService, IEmailSender emailSender) : ControllerBase
     {
         [HttpPost("login")]
         [SwaggerOperation(Summary = "Logs in a user", Description = "Logs in a user with provided credentials and returns a JWT token")]
@@ -157,6 +158,32 @@ namespace SnowrunnerMergerApi.Controllers
                 }),
                 _ => StatusCode(500)
             };
+        }
+
+        [HttpGet("google/link/callback")]
+        [Authorize]
+        [SwaggerOperation(Summary = "Handles Google account linking callback", Description = "Handles Google account linking callback and links Google account to the current user")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Account linked successfully", typeof(User))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid state token or error during google account linking")]
+        [SwaggerResponse(StatusCodes.Status409Conflict, "There is already a user with the Google account linked")]
+        public async Task<IActionResult> LinkGoogleAccountCallback(string? code, string state, string? error,
+            string callbackUrl)
+        {
+            if (!string.IsNullOrEmpty(error))
+            {
+                return BadRequest();
+            }
+            
+            if (!authService.ValidateOauthStateToken(state))
+            {
+                return BadRequest();
+            }
+
+            var user = await userService.GetCurrentUser();
+
+            var updatedUser = await authService.LinkGoogleAccount(user, code!, callbackUrl);
+
+            return Ok(updatedUser);
         }
 
         [HttpPost("google/link-account")]
