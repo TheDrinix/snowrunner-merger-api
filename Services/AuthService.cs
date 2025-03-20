@@ -940,7 +940,7 @@ public class AuthService : IAuthService
     {
         if (user.GoogleId is not null)
         {
-            throw new HttpResponseException(HttpStatusCode.Conflict, "User already has a linked Google account");
+            throw new HttpResponseException(HttpStatusCode.BadRequest, "User already has a linked Google account");
         }
 
         try
@@ -954,7 +954,7 @@ public class AuthService : IAuthService
         {
             if (e.InnerException is Npgsql.PostgresException { SqlState: "23505" }) // Postgres unique constraint violation
             {
-                throw new HttpResponseException(HttpStatusCode.BadRequest, "The google account is already linked to another user");
+                throw new HttpResponseException(HttpStatusCode.Conflict, "The google account is already linked to another user");
             }
 
             throw;
