@@ -15,6 +15,14 @@ COPY . .
 WORKDIR "/src/."
 RUN dotnet build "./SnowrunnerMergerApi.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
+# Install the EF core global tool
+RUN dotnet tool install --global dotnet-ef --version 8.0.6
+# Add the EF core global tool to the PATH
+ENV PATH="$PATH:/root/.dotnet/tools"
+
+# Create the EF core migration bundle
+RUN dotnet ef migrations bundle --self-contained -r linux-x64 -o /app/efbundle
+
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
 RUN dotnet publish "./SnowrunnerMergerApi.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
@@ -22,4 +30,10 @@ RUN dotnet publish "./SnowrunnerMergerApi.csproj" -c $BUILD_CONFIGURATION -o /ap
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "SnowrunnerMergerApi.dll"]
+
+COPY --from=publish /app/efbundle ./efbundle
+
+# Copy the startup script
+COPY startup.sh .
+
+ENTRYPOINT ["./startup.sh"]
